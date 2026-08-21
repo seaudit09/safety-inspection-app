@@ -200,6 +200,15 @@ body{
 }
 .field textarea{resize:vertical; min-height:56px;}
 .field select:focus, .field input:focus, .field textarea:focus{outline:2px solid var(--navy-3); outline-offset:1px;}
+.add-adhoc-row{display:flex; gap:8px; margin-bottom:6px;}
+.add-adhoc-row input{
+  flex:1; padding:11px 12px; border-radius:11px; border:1px solid var(--line);
+  font-family:'Prompt'; font-size:13.5px; background:#FAFBFD; color:var(--ink);
+}
+.add-adhoc-row input:focus{outline:2px solid var(--navy-3); outline-offset:1px;}
+.add-adhoc-row .btn-sm{flex:0 0 auto; padding:11px 14px;}
+.rm-adhoc{margin-left:auto; flex:0 0 auto; color:var(--red); cursor:pointer; padding:2px;}
+.rm-adhoc svg{width:16px; height:16px; display:block;}
 .chip-select{display:flex; gap:8px; flex-wrap:wrap;}
 .chip-opt{
   padding:8px 14px; border-radius:20px; border:1px solid var(--line); background:#fff;
@@ -546,6 +555,54 @@ function todayThai(){
   return `${dd}/${mm}/${yyyy}`;
 }
 
+/* ---------------- ตัวช่วยจัดรูปแบบวันที่แบบไทย ---------------- */
+const TH_MONTHS = ["","มกราคม","กุมภาพันธ์","มีนาคม","เมษายน","พฤษภาคม","มิถุนายน","กรกฎาคม","สิงหาคม","กันยายน","ตุลาคม","พฤศจิกายน","ธันวาคม"];
+
+// แสดงผลวันที่แบบไทยเต็มรูปแบบ "21 สิงหาคม 2569" — รับได้ทั้ง dd/mm/yyyy (พ.ศ., รูปแบบหลักที่แอปนี้ใช้)
+// และ yyyy-mm-dd (ISO จาก <input type="date">) เผื่อกรณีข้อมูลเก่าหรือมาจากแหล่งอื่น
+function thaiDateDisplay(s){
+  if(!s) return "-";
+  let dd, mm, yyyy;
+  const iso = String(s).match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  const thai = String(s).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (iso){
+    yyyy = Number(iso[1]) + 543; mm = Number(iso[2]); dd = Number(iso[3]);
+  } else if (thai){
+    dd = Number(thai[1]); mm = Number(thai[2]); yyyy = Number(thai[3]);
+  } else {
+    return s; // รูปแบบไม่รู้จัก แสดงตามที่มีไว้ก่อน ป้องกันข้อมูลหาย
+  }
+  if (!TH_MONTHS[mm]) return s;
+  return `${dd} ${TH_MONTHS[mm]} ${yyyy}`;
+}
+
+// แปลง dd/mm/yyyy (พ.ศ. หรือ ค.ศ.) ให้เป็น yyyy-mm-dd (ค.ศ.) สำหรับใส่ใน <input type="date">
+function thaiDateToIso(s){
+  if(!s) return "";
+  const m = String(s).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if(!m) return "";
+  const dd = m[1], mo = m[2];
+  let y = Number(m[3]);
+  if (y > 2400) y -= 543; // เป็นปี พ.ศ. ให้แปลงกลับเป็น ค.ศ.
+  return `${String(y).padStart(4,'0')}-${String(mo).padStart(2,'0')}-${String(dd).padStart(2,'0')}`;
+}
+
+// แปลงค่าจาก <input type="date"> (yyyy-mm-dd แบบ ค.ศ.) กลับเป็น dd/mm/yyyy พ.ศ. เพื่อเก็บให้ตรงรูปแบบเดียวกับทั้งระบบ
+function isoToThaiDate(iso){
+  if(!iso) return "";
+  const m = String(iso).match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if(!m) return "";
+  const yyyy = Number(m[1]) + 543;
+  return `${String(m[3]).padStart(2,'0')}/${String(m[2]).padStart(2,'0')}/${yyyy}`;
+}
+
+// คีย์สำหรับเรียงลำดับวันที่ dd/mm/yyyy ให้ถูกต้องตามเวลาจริง (เรียงแบบ string ตรงๆ จะผิดข้ามเดือน/ปี)
+function sortableDateKey(s){
+  const m = String(s||"").match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if(!m) return String(s||"");
+  return `${m[3].padStart(4,'0')}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+}
+
 /* ---------------- image capture + compression ---------------- */
 function compressImage(file, maxDim=1280, quality=0.72){
   return new Promise((resolve,reject)=>{
@@ -785,8 +842,8 @@ function renderHome(){
   const total = tasks.length;
   const open = tasks.filter(t=>t.Status!=="Closed").length;
   const closed = tasks.filter(t=>t.Status==="Closed").length;
-  const todayStr = todayThai();
-  const overdue = tasks.filter(t=>t.Status!=="Closed" && String(t.DueDate) < todayStr).length;
+  const todayKey = sortableDateKey(todayThai());
+  const overdue = tasks.filter(t=>t.Status!=="Closed" && t.DueDate && sortableDateKey(t.DueDate) < todayKey).length;
   const byRisk = {"สูง":0,"กลาง":0,"ต่ำ":0};
   tasks.forEach(t=>{ if(byRisk[t.Risk]!==undefined) byRisk[t.Risk]++; });
   const riskColors = {"สูง":"var(--red)","กลาง":"var(--amber-2)","ต่ำ":"var(--green)"};
@@ -835,7 +892,7 @@ function renderHome(){
 
 function renderUpcomingPlans(){
   const upcoming = PLANS.filter(p=>p.Status!=="เสร็จสิ้น" && p.Status!=="ยกเลิก")
-    .sort((a,b)=> String(a.PlannedDate).localeCompare(String(b.PlannedDate)))
+    .sort((a,b)=> sortableDateKey(a.PlannedDate).localeCompare(sortableDateKey(b.PlannedDate)))
     .slice(0,3);
   if (upcoming.length===0) return "";
   return `
@@ -851,7 +908,7 @@ function planCard(p){
       <span class="status-pill status-${p.Status||'รอดำเนินการ'}">${p.Status||'รอดำเนินการ'}</span>
     </div>
     <div class="meta">
-      ${p.PlannedDate ? `<span class="m-item">${ic.clock}${p.PlannedDate}</span>` : ""}
+      ${p.PlannedDate ? `<span class="m-item">${ic.clock}${thaiDateDisplay(p.PlannedDate)}</span>` : ""}
       ${p.Assignee ? `<span class="m-item">${ic.user}${p.Assignee}</span>` : ""}
     </div>
     ${p.Notes ? `<div class="meta" style="margin-top:4px;">${p.Notes}</div>` : ""}
@@ -912,7 +969,7 @@ function renderTasksViewSwitch(){
 function setTasksView(v){ state.tasksView=v; render(); }
 
 function renderInspectionHistory(){
-  const list = [...INSPECTIONS].sort((a,b)=> String(b.Date).localeCompare(String(a.Date)));
+  const list = [...INSPECTIONS].sort((a,b)=> sortableDateKey(b.Date).localeCompare(sortableDateKey(a.Date)));
   return `
     ${renderTasksViewSwitch()}
     ${list.length===0 ? `<div class="empty">${ic.inbox}<div class="t">ยังไม่มีประวัติการตรวจ</div></div>` :
@@ -931,7 +988,7 @@ function inspectionCard(insp){
       <span class="badge" style="background:${issuesN?'var(--red-bg)':'var(--green-bg)'};color:${issuesN?'var(--red)':'var(--green)'}">${issuesN? issuesN+' ปัญหา' : 'ผ่านทั้งหมด'}</span>
     </div>
     <div class="meta">
-      <span class="m-item">${ic.clock}${insp.Date}</span>
+      <span class="m-item">${ic.clock}${thaiDateDisplay(insp.Date)}</span>
       ${insp.Inspector ? `<span class="m-item">${ic.user}${insp.Inspector}</span>` : ""}
     </div>
   </div>`;
@@ -958,7 +1015,7 @@ function renderInspectionModal(id){
       </div>
 
       <div style="margin-top:14px">
-        <div class="detail-row"><div class="k">วันที่ตรวจ</div><div class="v">${insp.Date}</div></div>
+        <div class="detail-row"><div class="k">วันที่ตรวจ</div><div class="v">${thaiDateDisplay(insp.Date)}</div></div>
         <div class="detail-row"><div class="k">ผู้ตรวจสอบ</div><div class="v">${insp.Inspector||'-'}</div></div>
         <div class="detail-row"><div class="k">รายการที่ตรวจทั้งหมด</div><div class="v">${insp.TotalItems}</div></div>
         <div class="detail-row"><div class="k">ผ่าน</div><div class="v">${insp.PassedItems} / ${insp.TotalItems}</div></div>
@@ -999,7 +1056,7 @@ function taskCard(t){
     </div>
     <div class="meta">
       <span class="m-item">${ic.user}${String(t.Responsible||'').replace('คุณ','')}</span>
-      <span class="m-item">${ic.clock}${t.DueDate}</span>
+      <span class="m-item">${ic.clock}${thaiDateDisplay(t.DueDate)}</span>
       <span class="status-pill status-${t.Status}" style="margin-left:auto">${STATUS_LABEL[t.Status]}</span>
     </div>
   </div>`;
@@ -1062,16 +1119,24 @@ function renderTaskModal(id){
 
       <div style="margin-top:14px">
         <div class="detail-row"><div class="k">ผู้รับผิดชอบ</div><div class="v">${t.Responsible}</div></div>
-        <div class="detail-row"><div class="k">วันที่พบปัญหา</div><div class="v">${t.Opened}</div></div>
-        <div class="detail-row"><div class="k">กำหนดแก้ไข</div><div class="v">${t.DueDate}</div></div>
+        <div class="detail-row"><div class="k">วันที่พบปัญหา</div><div class="v">${thaiDateDisplay(t.Opened)}</div></div>
+        <div class="detail-row"><div class="k">กำหนดแก้ไข</div><div class="v">${thaiDateDisplay(t.DueDate)}</div></div>
         <div class="detail-row"><div class="k">สถานะปัจจุบัน</div><div class="v"><span class="status-pill status-${t.Status}">${STATUS_LABEL[t.Status]}</span></div></div>
-        ${t.PhotoBeforeURL ? `<div class="detail-row"><div class="k">ภาพก่อนแก้ไข</div><div class="v"><a href="${t.PhotoBeforeURL}" target="_blank" style="color:var(--blue)">เปิดดูภาพ</a></div></div>` : ""}
-        ${t.PhotoAfterURL ? `<div class="detail-row"><div class="k">ภาพหลังแก้ไข</div><div class="v"><a href="${t.PhotoAfterURL}" target="_blank" style="color:var(--blue)">เปิดดูภาพ</a></div></div>` : ""}
       </div>
       ${t.PhotoBeforeURL || t.PhotoAfterURL ? `
-        <div style="display:flex; gap:8px; margin-top:4px;">
-          ${t.PhotoBeforeURL ? `<img src="${t.PhotoBeforeURL}" style="width:70px;height:70px;object-fit:cover;border-radius:9px;border:1px solid var(--line);" onclick="window.open('${t.PhotoBeforeURL}','_blank')">` : ""}
-          ${t.PhotoAfterURL ? `<img src="${t.PhotoAfterURL}" style="width:70px;height:70px;object-fit:cover;border-radius:9px;border:1px solid var(--line);" onclick="window.open('${t.PhotoAfterURL}','_blank')">` : ""}
+        <div style="display:flex; gap:10px; margin-top:6px;">
+          ${t.PhotoBeforeURL ? `
+            <div style="text-align:center;">
+              <img src="${driveThumb(t.PhotoBeforeURL,300)}" style="width:78px;height:78px;object-fit:cover;border-radius:9px;border:1px solid var(--line);" onclick="window.open('${t.PhotoBeforeURL}','_blank')">
+              <div style="font-size:10px;color:var(--mute);margin-top:3px;">ก่อนแก้ไข</div>
+              <div style="font-size:10.5px;color:var(--red);font-weight:700;cursor:pointer;margin-top:1px;" onclick="removeTaskPhoto('${t.ID}','before')">ลบรูป</div>
+            </div>` : ""}
+          ${t.PhotoAfterURL ? `
+            <div style="text-align:center;">
+              <img src="${driveThumb(t.PhotoAfterURL,300)}" style="width:78px;height:78px;object-fit:cover;border-radius:9px;border:1px solid var(--line);" onclick="window.open('${t.PhotoAfterURL}','_blank')">
+              <div style="font-size:10px;color:var(--mute);margin-top:3px;">หลังแก้ไข</div>
+              <div style="font-size:10.5px;color:var(--red);font-weight:700;cursor:pointer;margin-top:1px;" onclick="removeTaskPhoto('${t.ID}','after')">ลบรูป</div>
+            </div>` : ""}
         </div>
       ` : ""}
 
@@ -1084,11 +1149,27 @@ function renderTaskModal(id){
       <button class="btn-secondary" onclick="printTask('${t.ID}')">${ic.printer}พิมพ์รายงานนี้</button>
       <div class="frow">
         <button class="btn-sm" style="flex:1" onclick="openTaskEdit('${t.ID}')">${ic.pencil} แก้ไขงาน</button>
-        <button class="btn-sm" style="flex:1;color:var(--red);border-color:var(--red)" onclick="deleteTask('${t.ID}')">${ic.trash} ลบงานนี้</button>
+        ${adminPassword ? `<button class="btn-sm" style="flex:1;color:var(--red);border-color:var(--red)" onclick="deleteTask('${t.ID}')">${ic.trash} ลบงานนี้</button>` : ""}
       </div>
+      ${!adminPassword ? `<div style="font-size:11px;color:var(--mute);text-align:center;margin-top:4px;">การลบใบงานทั้งใบทำได้เฉพาะผู้ดูแลระบบ — เข้าสู่ระบบผู้ดูแลระบบเพื่อลบ</div>` : ""}
       <button class="btn-secondary" onclick="closeModal()">ปิดหน้าต่าง</button>
     </div>
   </div>`;
+}
+
+async function removeTaskPhoto(id, which){
+  if(!confirm("ยืนยันการลบรูปนี้หรือไม่?")) return;
+  const field = which === "before" ? "PhotoBeforeURL" : "PhotoAfterURL";
+  setBusy(true);
+  try{
+    const updated = await apiPost("updateIssue", { id, [field]: "" });
+    const t = tasks.find(x=>String(x.ID)===String(id));
+    if (t) Object.assign(t, updated);
+    toastMsg("ลบรูปเรียบร้อย");
+  }catch(err){
+    toastMsg("ลบรูปไม่สำเร็จ: " + err.message, ic.warn);
+  }
+  setBusy(false);
 }
 
 function openTaskEdit(id){ state.taskEditId = id; render(); }
@@ -1154,7 +1235,7 @@ async function deleteTask(id){
   if(!confirm("ยืนยันการลบงานนี้หรือไม่? การลบไม่สามารถย้อนกลับได้")) return;
   setBusy(true);
   try{
-    await apiPost("deleteIssue", { id });
+    await apiPost("deleteIssue", { id }, adminPassword);
     tasks = tasks.filter(x=>String(x.ID)!==String(id));
     state.modalTask = null;
     toastMsg("ลบงานเรียบร้อย");
@@ -1201,6 +1282,33 @@ async function advanceTask(id){
 }
 
 /* ---------------- PRINT ---------------- */
+// URL รูปที่บันทึกไว้เป็นแบบ "https://drive.google.com/uc?id=FILEID" ซึ่งบางครั้ง Google Drive
+// จะเปลี่ยนไปแสดงหน้ายืนยัน/สแกนไวรัสแทนตัวรูปจริงเวลาฝังตรงใน <img>, ทำให้รูปไม่ขึ้น (โดยเฉพาะตอนพิมพ์รายงาน)
+// จึงแปลงเป็น endpoint "thumbnail" ของ Google Drive แทน ซึ่งเสถียรกว่ามากสำหรับการฝังรูปแบบนี้
+function driveThumb(url, size){
+  if(!url) return url;
+  const m = String(url).match(/[?&]id=([^&]+)/);
+  if(!m) return url;
+  return `https://drive.google.com/thumbnail?id=${m[1]}&sz=w${size||1000}`;
+}
+
+// รอให้รูปทุกรูปในพื้นที่ที่จะพิมพ์โหลดเสร็จก่อนค่อยเปิดหน้าต่างพิมพ์ (มี timeout กันค้าง)
+// แก้ปัญหาเดิมที่สั่ง window.print() ทันทีหลังใส่ <img> ลงไป ทำให้รูปยังโหลดไม่ทันจึงไม่ขึ้นในพรีวิว
+function waitForPrintImages(container, timeoutMs=4000){
+  const imgs = Array.from(container.querySelectorAll("img"));
+  if(!imgs.length) return Promise.resolve();
+  return Promise.all(imgs.map(img => new Promise(resolve=>{
+    if (img.complete && img.naturalWidth > 0) return resolve();
+    const done = ()=>resolve();
+    img.addEventListener("load", done, {once:true});
+    img.addEventListener("error", ()=>{
+      img.closest(".print-photo")?.querySelector(".cap")?.insertAdjacentHTML("beforebegin", `<div style="font-size:11px;color:#c00;">(โหลดรูปไม่สำเร็จ — เปิดดูได้จากลิงก์ในเว็บ)</div>`);
+      done();
+    }, {once:true});
+    setTimeout(done, timeoutMs);
+  })));
+}
+
 function printTask(id){
   const t = tasks.find(x=>String(x.ID)===String(id));
   if(!t) return;
@@ -1214,13 +1322,13 @@ function printTask(id){
     <div class="print-kv"><div class="k">รายละเอียดปัญหา</div><div>${t.Issue}</div></div>
     <div class="print-kv"><div class="k">ระดับความเสี่ยง</div><div>${t.Risk}</div></div>
     <div class="print-kv"><div class="k">ผู้รับผิดชอบ</div><div>${t.Responsible}</div></div>
-    <div class="print-kv"><div class="k">วันที่พบปัญหา</div><div>${t.Opened}</div></div>
-    <div class="print-kv"><div class="k">กำหนดแก้ไข</div><div>${t.DueDate}</div></div>
+    <div class="print-kv"><div class="k">วันที่พบปัญหา</div><div>${thaiDateDisplay(t.Opened)}</div></div>
+    <div class="print-kv"><div class="k">กำหนดแก้ไข</div><div>${thaiDateDisplay(t.DueDate)}</div></div>
     <div class="print-kv"><div class="k">สถานะปัจจุบัน</div><div>${STATUS_LABEL[t.Status]}</div></div>
     ${(t.PhotoBeforeURL || t.PhotoAfterURL) ? `
       <div class="print-photos">
-        ${t.PhotoBeforeURL ? `<div class="print-photo"><img src="${t.PhotoBeforeURL}"><div class="cap">ภาพก่อนแก้ไข</div></div>` : ""}
-        ${t.PhotoAfterURL ? `<div class="print-photo"><img src="${t.PhotoAfterURL}"><div class="cap">ภาพหลังแก้ไข</div></div>` : ""}
+        ${t.PhotoBeforeURL ? `<div class="print-photo"><img src="${driveThumb(t.PhotoBeforeURL,1200)}"><div class="cap">ภาพก่อนแก้ไข</div></div>` : ""}
+        ${t.PhotoAfterURL ? `<div class="print-photo"><img src="${driveThumb(t.PhotoAfterURL,1200)}"><div class="cap">ภาพหลังแก้ไข</div></div>` : ""}
       </div>
     ` : ""}
     <div style="margin-top:30px; display:flex; gap:40px;">
@@ -1228,7 +1336,7 @@ function printTask(id){
       <div>ผู้ตรวจสอบยืนยัน: ......................................</div>
     </div>
   `;
-  window.print();
+  waitForPrintImages(area).then(()=> window.print());
 }
 
 function printTaskList(){
@@ -1243,13 +1351,13 @@ function printTaskList(){
       <thead><tr><th>พื้นที่</th><th>ปัญหาที่พบ</th><th>ความเสี่ยง</th><th>ผู้รับผิดชอบ</th><th>กำหนดแก้ไข</th><th>สถานะ</th><th>ภาพ</th></tr></thead>
       <tbody>
         ${list.map(t=>`<tr>
-          <td>${t.Area}</td><td>${t.Issue}</td><td>${t.Risk}</td><td>${t.Responsible}</td><td>${t.DueDate}</td><td>${STATUS_LABEL[t.Status]}</td>
-          <td>${t.PhotoBeforeURL ? `<img class="print-tbl-thumb" src="${t.PhotoBeforeURL}">` : ""}${t.PhotoAfterURL ? `<img class="print-tbl-thumb" src="${t.PhotoAfterURL}">` : ""}</td>
+          <td>${t.Area}</td><td>${t.Issue}</td><td>${t.Risk}</td><td>${t.Responsible}</td><td>${thaiDateDisplay(t.DueDate)}</td><td>${STATUS_LABEL[t.Status]}</td>
+          <td>${t.PhotoBeforeURL ? `<img class="print-tbl-thumb" src="${driveThumb(t.PhotoBeforeURL,150)}">` : ""}${t.PhotoAfterURL ? `<img class="print-tbl-thumb" src="${driveThumb(t.PhotoAfterURL,150)}">` : ""}</td>
         </tr>`).join("")}
       </tbody>
     </table>
   `;
-  window.print();
+  waitForPrintImages(area).then(()=> window.print());
 }
 
 /* ---------------- NEW INSPECTION WIZARD ---------------- */
@@ -1280,7 +1388,7 @@ function wizStep1(){
       </div>
       <div class="field">
         <label>วันที่ตรวจสอบ</label>
-        <input type="text" value="${d.date}" readonly>
+        <input type="text" value="${thaiDateDisplay(d.date)}" readonly>
       </div>
       <div class="field">
         <label>ผู้ตรวจสอบ</label>
@@ -1300,28 +1408,54 @@ function wizStep1(){
 
 function wizStepPick(){
   const d = state.draft;
-  if(d.checks.length===0){
-    return `<div class="empty">${ic.clipboard}<div class="t">ไม่มีรายการตรวจสำหรับประเภทนี้<br>ไปที่ผู้ดูแลระบบเพื่อเพิ่มรายการตรวจ</div></div>
-    <button class="btn-primary" onclick="wizStep(1)">${ic.chevleft} ย้อนกลับ</button>`;
-  }
   const selCount = d.checks.filter(c=>c.selected).length;
   return `
-    <div class="select-bar">
-      <div class="cnt">เลือกแล้ว ${selCount} / ${d.checks.length} รายการ</div>
-      <div class="lnk" onclick="selectAllChecks(${selCount < d.checks.length})">${selCount < d.checks.length ? "เลือกทั้งหมด" : "ไม่เลือกเลย"}</div>
-    </div>
-    ${d.checks.map((c,i)=>`
-      <div class="select-item ${c.selected?'on':''}" onclick="toggleCheckSel(${i})">
-        <div class="cb">${c.selected ? ic.check : ""}</div>
-        <div class="tx">${c.q}</div>
+    ${d.checks.length ? `
+      <div class="select-bar">
+        <div class="cnt">เลือกแล้ว ${selCount} / ${d.checks.length} รายการ</div>
+        <div class="lnk" onclick="selectAllChecks(${selCount < d.checks.length})">${selCount < d.checks.length ? "เลือกทั้งหมด" : "ไม่เลือกเลย"}</div>
       </div>
-    `).join("")}
+      ${d.checks.map((c,i)=>`
+        <div class="select-item ${c.selected?'on':''}" onclick="toggleCheckSel(${i})">
+          <div class="cb">${c.selected ? ic.check : ""}</div>
+          <div class="tx">${c.q}${c.adhoc ? ' <span style="color:var(--navy-3);font-weight:700;font-size:10.5px;">(เพิ่มเอง)</span>' : ''}</div>
+          ${c.adhoc ? `<div class="rm-adhoc" onclick="event.stopPropagation();removeAdhocCheck(${i})">${ic.trash}</div>` : ""}
+        </div>
+      `).join("")}
+    ` : `<div class="empty">${ic.clipboard}<div class="t">ยังไม่มีรายการตรวจมาตรฐานสำหรับประเภทนี้<br>เพิ่มรายการตรวจเฉพาะกิจด้านล่างเพื่อเริ่มตรวจได้เลย</div></div>`}
+
+    <div class="section-label"><span class="dash"></span>เพิ่มรายการตรวจเพิ่มเติม (เฉพาะรอบนี้)</div>
+    <div class="add-adhoc-row">
+      <input type="text" id="adhoc-input" placeholder="พิมพ์รายการตรวจที่ต้องการเพิ่ม..." onkeydown="if(event.key==='Enter'){event.preventDefault();addAdhocCheck();}">
+      <button type="button" class="btn-sm" onclick="addAdhocCheck()">${ic.plus} เพิ่ม</button>
+    </div>
+    <div style="font-size:11px;color:var(--mute);margin:-4px 0 14px;">รายการที่พิมพ์เพิ่มจะใช้ได้เฉพาะการตรวจรอบนี้เท่านั้น ไม่ถูกบันทึกเข้ารายการตรวจสอบถาวรของผู้ดูแลระบบ</div>
+
     <button class="btn-primary" onclick="toStepRate()">ถัดไป: เริ่มตรวจ (${selCount} รายการ) ${ic.arrow}</button>
   `;
 }
 
 function toggleCheckSel(i){ state.draft.checks[i].selected = !state.draft.checks[i].selected; render(); }
 function selectAllChecks(v){ state.draft.checks.forEach(c=>c.selected=v); render(); }
+
+function addAdhocCheck(){
+  const input = document.getElementById("adhoc-input");
+  const text = input ? input.value.trim() : "";
+  if(!text){ toastMsg("กรุณาพิมพ์รายการตรวจที่ต้องการเพิ่ม", ic.warn); return; }
+  state.draft.checks.push({
+    srcId: null, q: text, selected: true, result: null, risk: "กลาง", adhoc: true,
+    resp: RESPONSIBLES[0] ? RESPONSIBLES[0].Name : "",
+    photoData: null, photoName: null
+  });
+  render();
+  // โฟกัสกลับไปที่ช่องพิมพ์ให้พิมพ์รายการถัดไปต่อได้เลยถ้ามีหลายรายการ
+  setTimeout(()=>{ const el = document.getElementById("adhoc-input"); if(el) el.focus(); }, 0);
+}
+
+function removeAdhocCheck(i){
+  state.draft.checks.splice(i,1);
+  render();
+}
 
 function toStepRate(){
   const d = state.draft;
@@ -1478,14 +1612,18 @@ async function submitInspection(){
 
   setBusy(true);
   try{
-    for (const c of issues){
-      const created = await apiPost("addIssue", {
-        area: areaName, issue: c.q, risk: c.risk, responsible: c.resp,
-        dueDate: todayThai(), opened: todayThai(), status: "Assigned",
-        photoBeforeBase64: c.photoData || undefined,
-        photoBeforeName: c.photoName || undefined
+    if (issues.length){
+      // ส่งงานแก้ไขทั้งหมดในคำขอเดียว (แทนที่จะวนส่งทีละรายการ) ช่วยให้บันทึกเร็วขึ้นมาก
+      // โดยเฉพาะเมื่อพบปัญหาหลายข้อพร้อมกัน เพราะลดจำนวนรอบการเชื่อมต่อไปที่ Apps Script
+      const created = await apiPost("addIssuesBatch", {
+        issues: issues.map(c=>({
+          area: areaName, issue: c.q, risk: c.risk, responsible: c.resp,
+          dueDate: todayThai(), opened: todayThai(), status: "Assigned",
+          photoBeforeBase64: c.photoData || undefined,
+          photoBeforeName: c.photoName || undefined
+        }))
       });
-      tasks.unshift(created);
+      created.forEach(item => tasks.unshift(item));
     }
     // บันทึกประวัติการตรวจทุกครั้งไว้เสมอ ไม่ว่าจะพบปัญหาหรือไม่ก็ตาม
     // เพื่อให้ค้นหา/ตรวจสอบย้อนหลังได้ (แก้ปัญหา "ตรวจแล้วหางานที่บันทึกไม่เจอ" เมื่อผลตรวจผ่านหมด)
@@ -1797,7 +1935,7 @@ function planFormFields(prefix, p){
     <label style="font-size:12px;font-weight:600;color:var(--mute);display:block;margin:10px 0 6px;">ประเภทการตรวจ</label>
     <select id="${prefix}-type">${INSPECT_TYPES.map(t=>`<option ${p.Type===t.Name?'selected':''}>${t.Name}</option>`).join("")}</select>
     <label style="font-size:12px;font-weight:600;color:var(--mute);display:block;margin:10px 0 6px;">วันที่วางแผนตรวจ</label>
-    <input type="date" id="${prefix}-date" value="${p.PlannedDateRaw||''}">
+    <input type="date" id="${prefix}-date" value="${thaiDateToIso(p.PlannedDateRaw||'')}">
     <label style="font-size:12px;font-weight:600;color:var(--mute);display:block;margin:10px 0 6px;">ผู้รับผิดชอบตรวจ</label>
     <select id="${prefix}-assignee">${RESPONSIBLES.map(r=>`<option ${p.Assignee===r.Name?'selected':''}>${r.Name}</option>`).join("")}</select>
     <label style="font-size:12px;font-weight:600;color:var(--mute);display:block;margin:10px 0 6px;">สถานะ</label>
@@ -1823,7 +1961,7 @@ function renderAdminPlans(){
     html += `<button class="add-row-btn" onclick="adminStartAdd()">${ic.plus} เพิ่มแผนงานตรวจสอบ</button>`;
   }
 
-  const sorted = [...PLANS].sort((a,b)=> String(a.PlannedDate).localeCompare(String(b.PlannedDate)));
+  const sorted = [...PLANS].sort((a,b)=> sortableDateKey(a.PlannedDate).localeCompare(sortableDateKey(b.PlannedDate)));
   sorted.forEach(p=>{
     if(String(editId)===String(p.ID)){
       html += `<div class="admin-form">
@@ -1837,7 +1975,7 @@ function renderAdminPlans(){
       html += `<div class="admin-row">
         <div class="info">
           <div class="nm">${p.Area} • ${p.Type}</div>
-          <div class="tg">${p.PlannedDate||'ไม่ระบุวันที่'} • ${p.Assignee||'ยังไม่ระบุผู้ตรวจ'} • ${p.Status||'รอดำเนินการ'}</div>
+          <div class="tg">${p.PlannedDate ? thaiDateDisplay(p.PlannedDate) : 'ไม่ระบุวันที่'} • ${p.Assignee||'ยังไม่ระบุผู้ตรวจ'} • ${p.Status||'รอดำเนินการ'}</div>
         </div>
         <div class="acts">
           <div class="icon-sm" onclick="adminStartEdit('${p.ID}')">${ic.pencil}</div>
@@ -1853,7 +1991,7 @@ function readPlanForm(prefix){
   return {
     Area: document.getElementById(prefix+"-area")?.value || "",
     Type: document.getElementById(prefix+"-type")?.value || "",
-    PlannedDate: document.getElementById(prefix+"-date")?.value || "",
+    PlannedDate: isoToThaiDate(document.getElementById(prefix+"-date")?.value || ""),
     Assignee: document.getElementById(prefix+"-assignee")?.value || "",
     Status: document.getElementById(prefix+"-status")?.value || "รอดำเนินการ",
     Notes: document.getElementById(prefix+"-notes")?.value.trim() || ""
