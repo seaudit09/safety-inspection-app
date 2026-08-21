@@ -234,6 +234,7 @@ body{
 }
 .photo-btn svg{width:20px; height:20px;}
 .photo-btn:active{background:#F0F2F6;}
+.photo-actions.warn .photo-btn{border-color:var(--red); background:var(--red-bg); color:var(--red);}
 .photo-preview{
   margin-top:9px; display:flex; align-items:center; gap:10px; border:1px solid var(--green);
   background:var(--green-bg); border-radius:12px; padding:8px; color:var(--green); font-size:12px; font-weight:700;
@@ -455,6 +456,8 @@ let AREAS = [];
 let INSPECT_TYPES = [];
 let CHECKLIST_ITEMS = [];  // {ID, Text, TypeID}
 let RESPONSIBLES = [];
+let INSPECTORS = [];        // มาจากชีท Inspectors — รายชื่อผู้ตรวจสอบที่เลือกได้ตอนเริ่มตรวจ
+let lastInspectorName = ""; // จำชื่อผู้ตรวจสอบที่เลือกล่าสุด เพื่อตั้งเป็นค่าเริ่มต้นในรอบตรวจถัดไป
 let tasks = [];             // มาจากชีท Issues
 let PLANS = [];              // มาจากชีท Plans — แผนงานตรวจสอบล่วงหน้า
 let INSPECTIONS = [];        // มาจากชีท Inspections — ประวัติการตรวจทุกครั้ง (ผ่านหรือพบปัญหาก็ตาม)
@@ -469,6 +472,7 @@ let state = {
   modalInspection: null,
   taskEditId: null,
   photoChooser: null,
+  showPhotoWarning: false,
   draft: null,
   adminTab: "areas",
   adminEditId: null,
@@ -509,6 +513,7 @@ async function loadAllData() {
     INSPECT_TYPES = data.types || [];
     CHECKLIST_ITEMS = data.checklist || [];
     RESPONSIBLES = data.people || [];
+    INSPECTORS = data.inspectorsList || [];
     tasks = data.issues || [];
     PLANS = data.plans || [];
     INSPECTIONS = data.inspections || [];
@@ -590,7 +595,7 @@ function nav(view, opt){
     if (!adminPassword) { state.view = "login"; render(); return; }
     state.adminEditId = null; state.adminAdding = false;
   }
-  if (view === "new") { state.step = 1; state.draft = freshDraft(opt && opt.planId); }
+  if (view === "new") { state.step = 1; state.draft = freshDraft(opt && opt.planId); state.showPhotoWarning = false; }
   state.view = view;
   render();
   window.scrollTo(0,0);
@@ -599,6 +604,7 @@ function nav(view, opt){
 function freshDraft(planId){
   let areaId = AREAS[0] ? AREAS[0].ID : "";
   let typeId = INSPECT_TYPES[0] ? INSPECT_TYPES[0].ID : "";
+  let inspectorName = lastInspectorName || (INSPECTORS[0] ? INSPECTORS[0].Name : "Safety Officer");
   if (planId){
     const plan = PLANS.find(p=>String(p.ID)===String(planId));
     if (plan){
@@ -606,12 +612,14 @@ function freshDraft(planId){
       const t = INSPECT_TYPES.find(x=>x.Name===plan.Type);
       if (a) areaId = a.ID;
       if (t) typeId = t.ID;
+      if (plan.Assignee) inspectorName = plan.Assignee;
     }
   }
   return {
     planId: planId || null,
     areaId,
     typeId,
+    inspectorName,
     date: todayThai(),
     checks: checklistForType(typeId).map(c=>({
       srcId:c.ID, q:c.Text, selected:true, result:null, risk:"กลาง",
@@ -1276,7 +1284,14 @@ function wizStep1(){
       </div>
       <div class="field">
         <label>ผู้ตรวจสอบ</label>
-        <input type="text" value="Safety Officer (คุณ)" readonly>
+        ${INSPECTORS.length ? `
+          <select onchange="d_inspector(this.value)">
+            ${INSPECTORS.map(p=>`<option ${d.inspectorName===p.Name?'selected':''}>${p.Name}</option>`).join("")}
+          </select>
+        ` : `
+          <input type="text" value="${d.inspectorName}" oninput="d_inspector(this.value)" placeholder="พิมพ์ชื่อผู้ตรวจสอบ">
+          <div style="font-size:11px;color:var(--mute);margin-top:5px;">ยังไม่มีรายชื่อผู้ตรวจสอบในระบบ — เพิ่มได้ที่เมนูผู้ดูแลระบบ &gt; ผู้ตรวจสอบ เพื่อให้เลือกจากลิสต์ได้ในครั้งถัดไป</div>
+        `}
       </div>
     </div>
     <button class="btn-primary" onclick="wizStep(2)">ถัดไป: เลือกรายการตรวจสอบ ${ic.arrow}</button>
@@ -1310,7 +1325,7 @@ function selectAllChecks(v){ state.draft.checks.forEach(c=>c.selected=v); render
 
 function toStepRate(){
   const d = state.draft;
-  if(d.checks.filter(c=>c.selected).length===0){ toastMsg("กรุณาเลือกอย่างน้อย 1 รายการก่อนเริ่มตรวจ", ic.warn); render(); return; }
+  if(d.checks.filter(c=>c.selected).length===0){ toastMsg("กรุณาเลือกอย่างน้อย 1 รายการก่อนเริ่มตรวจ", ic.warn); return; }
   wizStep(3);
 }
 
@@ -1318,7 +1333,7 @@ function wizStep2(){
   const d = state.draft;
   return `
     ${d.checks.map((c,i)=> !c.selected ? "" : `
-      <div class="checklist-item">
+      <div class="checklist-item" id="chk-${i}">
         <div class="qrow">
           <div class="qtext">${i+1}. ${c.q}</div>
           <div class="toggle2">
@@ -1349,7 +1364,8 @@ function wizStep2(){
                   <span class="rm" onclick="removeChecklistPhoto(${i})">ลบรูป</span>
                 </div>
               ` : `
-                <div class="photo-actions">
+                ${state.showPhotoWarning ? `<div style="font-size:11.5px;color:var(--red);font-weight:700;margin-bottom:6px;">${ic.warn} จำเป็นต้องแนบภาพก่อนบันทึก</div>` : ""}
+                <div class="photo-actions ${state.showPhotoWarning ? 'warn' : ''}">
                   <div class="photo-btn" onclick="takePhoto(${i})">${ic.camera}ถ่ายภาพ</div>
                   <div class="photo-btn" onclick="attachPhoto(${i})">${ic.upload}แนบรูป</div>
                 </div>
@@ -1366,7 +1382,17 @@ function toStep3(){
   const d = state.draft;
   const active = d.checks.filter(c=>c.selected);
   const unresolved = active.filter(c=>c.result==='fail' && !c.photoData);
-  if(unresolved.length){ toastMsg("กรุณาถ่ายภาพประกอบปัญหาที่พบให้ครบ", ic.warn); render(); return; }
+  if(unresolved.length){
+    state.showPhotoWarning = true;
+    render();
+    toastMsg(`กรุณาแนบภาพประกอบปัญหาที่พบให้ครบ (ขาดอีก ${unresolved.length} รายการ — ดูกรอบสีแดง)`, ic.warn);
+    // เลื่อนหน้าจอไปยังรายการแรกที่ยังขาดรูป เพื่อให้เห็นชัดว่าต้องทำอะไรต่อ
+    const firstIdx = d.checks.findIndex(c=>c.selected && c.result==='fail' && !c.photoData);
+    const el = document.getElementById("chk-"+firstIdx);
+    if (el) el.scrollIntoView({behavior:"smooth", block:"center"});
+    return;
+  }
+  state.showPhotoWarning = false;
   wizStep(4);
 }
 
@@ -1383,6 +1409,7 @@ function wizStep3(){
       <div class="section-label" style="margin-top:0"><span class="dash"></span>สรุปผลตรวจ</div>
       <div class="detail-row"><div class="k">พื้นที่</div><div class="v">${areaName}</div></div>
       <div class="detail-row"><div class="k">ประเภทตรวจ</div><div class="v">${typeName}</div></div>
+      <div class="detail-row"><div class="k">ผู้ตรวจสอบ</div><div class="v">${d.inspectorName||'-'}</div></div>
       <div class="detail-row"><div class="k">รายการที่ตรวจ</div><div class="v">${active.length} รายการ</div></div>
       <div class="detail-row"><div class="k">รายการที่ผ่าน</div><div class="v">${passed} / ${active.length}</div></div>
       <div class="detail-row"><div class="k">พบปัญหา</div><div class="v" style="color:${issues.length?'var(--red)':'var(--green)'}">${issues.length} รายการ</div></div>
@@ -1430,6 +1457,7 @@ function removeChecklistPhoto(i){
   render();
 }
 function d_area(v){ state.draft.areaId = v; }
+function d_inspector(v){ state.draft.inspectorName = v; lastInspectorName = v; }
 function d_type(v){
   state.draft.typeId = v;
   state.draft.checks = checklistForType(v).map(c=>({
@@ -1437,6 +1465,7 @@ function d_type(v){
     resp: RESPONSIBLES[0] ? RESPONSIBLES[0].Name : "",
     photoData:null, photoName:null
   }));
+  state.showPhotoWarning = false;
 }
 
 async function submitInspection(){
@@ -1461,7 +1490,7 @@ async function submitInspection(){
     // บันทึกประวัติการตรวจทุกครั้งไว้เสมอ ไม่ว่าจะพบปัญหาหรือไม่ก็ตาม
     // เพื่อให้ค้นหา/ตรวจสอบย้อนหลังได้ (แก้ปัญหา "ตรวจแล้วหางานที่บันทึกไม่เจอ" เมื่อผลตรวจผ่านหมด)
     const inspection = await apiPost("addInspection", {
-      area: areaName, type: typeName, date: todayThai(),
+      area: areaName, type: typeName, date: todayThai(), inspector: d.inspectorName || undefined,
       totalItems: active.length, passedItems: passedCount, issuesCount: issues.length,
       planId: d.planId || undefined
     });
@@ -1489,6 +1518,7 @@ function renderAdmin(){
     {k:"types", label:"ประเภทตรวจ"},
     {k:"checklist", label:"รายการตรวจสอบ"},
     {k:"people", label:"ผู้รับผิดชอบ"},
+    {k:"inspectors", label:"ผู้ตรวจสอบ"},
     {k:"plans", label:"แผนงาน"},
     {k:"backup", label:"สำรองข้อมูล"}
   ];
@@ -1500,6 +1530,7 @@ function renderAdmin(){
     ${state.adminTab==="types" ? renderAdminSimple(INSPECT_TYPES, "types", "เพิ่มประเภทการตรวจ") : ""}
     ${state.adminTab==="checklist" ? renderAdminChecklist() : ""}
     ${state.adminTab==="people" ? renderAdminSimple(RESPONSIBLES, "people", "เพิ่มผู้รับผิดชอบ") : ""}
+    ${state.adminTab==="inspectors" ? renderAdminSimple(INSPECTORS, "inspectors", "เพิ่มผู้ตรวจสอบ") : ""}
     ${state.adminTab==="plans" ? renderAdminPlans() : ""}
     ${state.adminTab==="backup" ? renderAdminBackup() : ""}
   `;
@@ -1534,7 +1565,7 @@ function backupAllData(){
   const payload = {
     exportedAt: new Date().toISOString(),
     areas: AREAS, types: INSPECT_TYPES, checklist: CHECKLIST_ITEMS,
-    people: RESPONSIBLES, issues: tasks, plans: PLANS, inspections: INSPECTIONS
+    people: RESPONSIBLES, inspectorsList: INSPECTORS, issues: tasks, plans: PLANS, inspections: INSPECTIONS
   };
   const dateStr = new Date().toISOString().slice(0,10);
   downloadTextFile(`safety-backup-${dateStr}.json`, JSON.stringify(payload, null, 2), "application/json");
@@ -1559,6 +1590,7 @@ function entityMeta(entity){
   if (entity==="areas") return {arr:AREAS, action:"Area"};
   if (entity==="types") return {arr:INSPECT_TYPES, action:"Type"};
   if (entity==="people") return {arr:RESPONSIBLES, action:"Person"};
+  if (entity==="inspectors") return {arr:INSPECTORS, action:"Inspector"};
   return null;
 }
 
@@ -1653,6 +1685,7 @@ async function adminDeleteSimple(entity, id){
       CHECKLIST_ITEMS.forEach(c=>{ if(String(c.TypeID)===String(id)) c.TypeID=""; });
     }
     if (entity==="people") RESPONSIBLES = RESPONSIBLES.filter(x=>String(x.ID)!==String(id));
+    if (entity==="inspectors") INSPECTORS = INSPECTORS.filter(x=>String(x.ID)!==String(id));
     toastMsg("ลบรายการแล้ว");
   }catch(err){
     toastMsg("ลบไม่สำเร็จ: " + err.message, ic.warn);
