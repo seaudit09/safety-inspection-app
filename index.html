@@ -226,6 +226,20 @@ body{
 }
 .photo-box.taken{border-style:solid; border-color:var(--green); background:var(--green-bg); color:var(--green);}
 .photo-box svg{width:22px;height:22px; margin-bottom:4px;}
+.photo-actions{display:flex; gap:8px;}
+.photo-btn{
+  flex:1; display:flex; flex-direction:column; align-items:center; gap:4px;
+  border:2px dashed var(--line); border-radius:12px; padding:14px 8px; cursor:pointer;
+  background:#FAFBFD; color:var(--mute); font-size:11.5px; font-weight:700; font-family:'Prompt';
+}
+.photo-btn svg{width:20px; height:20px;}
+.photo-btn:active{background:#F0F2F6;}
+.photo-preview{
+  margin-top:9px; display:flex; align-items:center; gap:10px; border:1px solid var(--green);
+  background:var(--green-bg); border-radius:12px; padding:8px; color:var(--green); font-size:12px; font-weight:700;
+}
+.photo-preview img{width:52px; height:52px; object-fit:cover; border-radius:8px; flex:0 0 auto;}
+.photo-preview .rm{margin-left:auto; color:var(--red); cursor:pointer; font-weight:700; font-size:11.5px; flex:0 0 auto;}
 
 .btn-primary{
   width:100%; background:var(--navy); color:#fff; border:none; padding:14px; border-radius:13px;
@@ -242,8 +256,9 @@ body{
 .btn-secondary svg{width:15px;height:15px;}
 .btn-sm{
   border:1px solid var(--line); background:#fff; padding:8px 12px; border-radius:9px; font-size:12px; font-weight:700;
-  font-family:'Prompt'; cursor:pointer; color:var(--navy);
+  font-family:'Prompt'; cursor:pointer; color:var(--navy); display:flex; align-items:center; justify-content:center; gap:6px;
 }
+.frow{display:flex; gap:8px; margin-top:10px;}
 
 .steps{display:flex; gap:6px; margin-bottom:16px;}
 .steps .seg{flex:1; height:4px; border-radius:3px; background:rgba(255,255,255,0.15);}
@@ -342,6 +357,11 @@ body{
   .print-tbl th{background:#f0f0f0;}
   .print-kv{display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid #ddd; font-size:12.5px;}
   .print-kv .k{color:#555;}
+  .print-photos{display:flex; gap:16px; margin-top:16px; page-break-inside:avoid;}
+  .print-photo{flex:1; text-align:center;}
+  .print-photo img{width:100%; max-height:280px; object-fit:cover; border:1px solid #ccc; border-radius:6px;}
+  .print-photo .cap{font-size:11px; color:#555; margin-top:4px;}
+  .print-tbl-thumb{width:34px; height:34px; object-fit:cover; border-radius:4px; margin-right:3px;}
 }
 
 .login-wrap{display:flex; align-items:center; justify-content:center; min-height:70vh; padding:20px;}
@@ -422,7 +442,9 @@ const ic = {
   layers:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 2 9 5-9 5-9-5 9-5Z"/><path d="m3 12 9 5 9-5M3 17l9 5 9-5"/></svg>`,
   lock:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>`,
   cloud:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 18a4 4 0 0 1-.4-8A5.5 5.5 0 0 1 16 8.4 4.5 4.5 0 0 1 17.5 18Z"/></svg>`,
-  logout:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/></svg>`
+  logout:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/></svg>`,
+  upload:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>`,
+  download:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v12M7 11l5 5 5-5"/><path d="M4 19h16"/></svg>`
 };
 
 const STATUS_ORDER = ["New","Assigned","InProgress","Waiting","Closed"];
@@ -444,6 +466,9 @@ let state = {
   filter: "all",
   tasksView: "issues",   // issues | history — สลับมุมมองหน้า "งานของฉัน"
   modalTask: null,
+  modalInspection: null,
+  taskEditId: null,
+  photoChooser: null,
   draft: null,
   adminTab: "areas",
   adminEditId: null,
@@ -539,11 +564,11 @@ function compressImage(file, maxDim=1280, quality=0.72){
   });
 }
 
-function triggerPhotoInput(onDone){
+function triggerPhotoInput(onDone, useCamera){
   const input = document.createElement("input");
   input.type = "file";
   input.accept = "image/*";
-  input.capture = "environment";
+  if (useCamera) input.capture = "environment"; // เปิดกล้องโดยตรง; ถ้าไม่ใส่ค่านี้จะเปิดคลังภาพ/ไฟล์แทน
   input.onchange = async ()=>{
     const file = input.files[0];
     if (!file) return;
@@ -622,6 +647,8 @@ function render(){
     <div class="toast" id="toast"></div>
     ${(state.view!=="new" && state.view!=="admin") ? renderBottomNav() : ""}
     ${state.modalTask ? renderTaskModal(state.modalTask) : ""}
+    ${state.modalInspection ? renderInspectionModal(state.modalInspection) : ""}
+    ${state.photoChooser ? renderPhotoChooser() : ""}
   `;
 }
 
@@ -887,7 +914,7 @@ function renderInspectionHistory(){
 
 function inspectionCard(insp){
   const issuesN = Number(insp.IssuesCount)||0;
-  return `<div class="task-card" style="cursor:default">
+  return `<div class="task-card" onclick="openInspection('${insp.ID}')">
     <div class="top">
       <div>
         <div class="area">${insp.Area} • ${insp.Type}</div>
@@ -898,6 +925,55 @@ function inspectionCard(insp){
     <div class="meta">
       <span class="m-item">${ic.clock}${insp.Date}</span>
       ${insp.Inspector ? `<span class="m-item">${ic.user}${insp.Inspector}</span>` : ""}
+    </div>
+  </div>`;
+}
+
+function openInspection(id){ state.modalInspection = id; render(); }
+function closeInspectionModal(){ state.modalInspection = null; render(); }
+
+function renderInspectionModal(id){
+  const insp = INSPECTIONS.find(x=>String(x.ID)===String(id));
+  if(!insp) return "";
+  const issuesN = Number(insp.IssuesCount)||0;
+  // จับคู่แบบประมาณการ: งานแก้ไขที่เปิดในพื้นที่/วันเดียวกันกับการตรวจครั้งนี้ น่าจะมาจากการตรวจครั้งนี้
+  const related = tasks.filter(t=>t.Area===insp.Area && t.Opened===insp.Date);
+  return `<div class="modal-back" onclick="if(event.target===this)closeInspectionModal()">
+    <div class="modal">
+      <div class="modal-handle"></div>
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
+        <div>
+          <div class="area">${insp.Area}</div>
+          <div style="font-size:16px; font-weight:700; margin-top:2px;">${insp.Type}</div>
+        </div>
+        <span class="badge" style="background:${issuesN?'var(--red-bg)':'var(--green-bg)'};color:${issuesN?'var(--red)':'var(--green)'}">${issuesN? issuesN+' ปัญหา' : 'ผ่านทั้งหมด'}</span>
+      </div>
+
+      <div style="margin-top:14px">
+        <div class="detail-row"><div class="k">วันที่ตรวจ</div><div class="v">${insp.Date}</div></div>
+        <div class="detail-row"><div class="k">ผู้ตรวจสอบ</div><div class="v">${insp.Inspector||'-'}</div></div>
+        <div class="detail-row"><div class="k">รายการที่ตรวจทั้งหมด</div><div class="v">${insp.TotalItems}</div></div>
+        <div class="detail-row"><div class="k">ผ่าน</div><div class="v">${insp.PassedItems} / ${insp.TotalItems}</div></div>
+        <div class="detail-row"><div class="k">พบปัญหา</div><div class="v" style="color:${issuesN?'var(--red)':'var(--green)'}">${issuesN} รายการ</div></div>
+      </div>
+
+      ${related.length ? `
+        <div class="section-label"><span class="dash"></span>งานแก้ไขที่เกี่ยวข้อง</div>
+        ${related.map(t=>`
+          <div class="task-card" onclick="closeInspectionModal();openTask('${t.ID}')">
+            <div class="top">
+              <div><div class="issue">${t.Issue}</div></div>
+              <span class="badge risk-${t.Risk}">${t.Risk}</span>
+            </div>
+            <div class="meta">
+              <span class="m-item">${ic.user}${String(t.Responsible||'').replace('คุณ','')}</span>
+              <span class="status-pill status-${t.Status}" style="margin-left:auto">${STATUS_LABEL[t.Status]}</span>
+            </div>
+          </div>
+        `).join("")}
+      ` : ""}
+
+      <button class="btn-secondary" onclick="closeInspectionModal()">ปิดหน้าต่าง</button>
     </div>
   </div>`;
 }
@@ -921,12 +997,39 @@ function taskCard(t){
   </div>`;
 }
 
-function openTask(id){ state.modalTask = id; render(); }
-function closeModal(){ state.modalTask = null; render(); }
+function openTask(id){ state.modalTask = id; state.taskEditId = null; render(); }
+function closeModal(){ state.modalTask = null; state.taskEditId = null; render(); }
+
+function choosePhotoSource(onDone){
+  state.photoChooser = onDone;
+  render();
+}
+function renderPhotoChooser(){
+  if(!state.photoChooser) return "";
+  return `<div class="modal-back" onclick="if(event.target===this)cancelPhotoChooser()">
+    <div class="modal" style="padding-bottom:24px;">
+      <div class="modal-handle"></div>
+      <div style="font-size:15px;font-weight:700;margin-bottom:14px;">แนบภาพหลักฐาน</div>
+      <div class="photo-actions">
+        <div class="photo-btn" onclick="resolvePhotoChooser(true)">${ic.camera}ถ่ายภาพ</div>
+        <div class="photo-btn" onclick="resolvePhotoChooser(false)">${ic.upload}แนบรูปจากคลัง</div>
+      </div>
+      <button class="btn-secondary" style="margin-top:12px" onclick="cancelPhotoChooser()">ยกเลิก</button>
+    </div>
+  </div>`;
+}
+function resolvePhotoChooser(useCamera){
+  const cb = state.photoChooser;
+  state.photoChooser = null;
+  render();
+  if (cb) triggerPhotoInput(cb, useCamera);
+}
+function cancelPhotoChooser(){ state.photoChooser = null; render(); }
 
 function renderTaskModal(id){
   const t = tasks.find(x=>String(x.ID)===String(id));
   if(!t) return "";
+  if (state.taskEditId === t.ID) return renderTaskEditModal(t);
   const idx = STATUS_ORDER.indexOf(t.Status);
   const nextLabel = {New:"รับมอบหมายงาน",Assigned:"เริ่มดำเนินการแก้ไข",InProgress:"ส่งให้ตรวจสอบผล",Waiting:"ยืนยันปิดงาน (อัปโหลดภาพหลังแก้ไข)"}[t.Status];
   return `<div class="modal-back" onclick="if(event.target===this)closeModal()">
@@ -957,6 +1060,12 @@ function renderTaskModal(id){
         ${t.PhotoBeforeURL ? `<div class="detail-row"><div class="k">ภาพก่อนแก้ไข</div><div class="v"><a href="${t.PhotoBeforeURL}" target="_blank" style="color:var(--blue)">เปิดดูภาพ</a></div></div>` : ""}
         ${t.PhotoAfterURL ? `<div class="detail-row"><div class="k">ภาพหลังแก้ไข</div><div class="v"><a href="${t.PhotoAfterURL}" target="_blank" style="color:var(--blue)">เปิดดูภาพ</a></div></div>` : ""}
       </div>
+      ${t.PhotoBeforeURL || t.PhotoAfterURL ? `
+        <div style="display:flex; gap:8px; margin-top:4px;">
+          ${t.PhotoBeforeURL ? `<img src="${t.PhotoBeforeURL}" style="width:70px;height:70px;object-fit:cover;border-radius:9px;border:1px solid var(--line);" onclick="window.open('${t.PhotoBeforeURL}','_blank')">` : ""}
+          ${t.PhotoAfterURL ? `<img src="${t.PhotoAfterURL}" style="width:70px;height:70px;object-fit:cover;border-radius:9px;border:1px solid var(--line);" onclick="window.open('${t.PhotoAfterURL}','_blank')">` : ""}
+        </div>
+      ` : ""}
 
       ${t.Status!=="Closed" ? `
         <button class="btn-primary" style="margin-top:18px" onclick="advanceTask('${t.ID}')" ${state.busy?'disabled':''}>
@@ -965,9 +1074,86 @@ function renderTaskModal(id){
         `<div style="margin-top:18px; text-align:center; color:var(--green); font-weight:700; font-size:13px; display:flex; align-items:center; justify-content:center; gap:6px;">${ic.shield.replace(/currentColor/g,'var(--green)')} Safety Verified &amp; ปิดงานแล้ว</div>`
       }
       <button class="btn-secondary" onclick="printTask('${t.ID}')">${ic.printer}พิมพ์รายงานนี้</button>
+      <div class="frow">
+        <button class="btn-sm" style="flex:1" onclick="openTaskEdit('${t.ID}')">${ic.pencil} แก้ไขงาน</button>
+        <button class="btn-sm" style="flex:1;color:var(--red);border-color:var(--red)" onclick="deleteTask('${t.ID}')">${ic.trash} ลบงานนี้</button>
+      </div>
       <button class="btn-secondary" onclick="closeModal()">ปิดหน้าต่าง</button>
     </div>
   </div>`;
+}
+
+function openTaskEdit(id){ state.taskEditId = id; render(); }
+function closeTaskEdit(){ state.taskEditId = null; render(); }
+
+function renderTaskEditModal(t){
+  return `<div class="modal-back" onclick="if(event.target===this)closeTaskEdit()">
+    <div class="modal">
+      <div class="modal-handle"></div>
+      <div style="font-size:15px;font-weight:700;margin-bottom:14px;">แก้ไขงาน</div>
+      <div class="field">
+        <label>พื้นที่</label>
+        <select id="edit-area">${AREAS.map(a=>`<option ${t.Area===a.Name?'selected':''}>${a.Name}</option>`).join("")}</select>
+      </div>
+      <div class="field">
+        <label>รายละเอียดปัญหา</label>
+        <textarea id="edit-issue">${t.Issue}</textarea>
+      </div>
+      <div class="field">
+        <label>ระดับความเสี่ยง</label>
+        <select id="edit-risk">${["ต่ำ","กลาง","สูง"].map(r=>`<option ${t.Risk===r?'selected':''}>${r}</option>`).join("")}</select>
+      </div>
+      <div class="field">
+        <label>ผู้รับผิดชอบแก้ไข</label>
+        <select id="edit-resp">${RESPONSIBLES.map(r=>`<option ${t.Responsible===r.Name?'selected':''}>${r.Name}</option>`).join("")}</select>
+      </div>
+      <div class="field">
+        <label>กำหนดแก้ไข</label>
+        <input type="text" id="edit-due" value="${t.DueDate}">
+      </div>
+      <div class="frow">
+        <button class="btn-sm" style="flex:1" onclick="closeTaskEdit()">ยกเลิก</button>
+        <button class="btn-sm" style="flex:1;background:var(--navy);color:#fff;border-color:var(--navy)" onclick="saveTaskEdit('${t.ID}')" ${state.busy?'disabled':''}>${ic.check} บันทึก</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+async function saveTaskEdit(id){
+  const vals = {
+    id,
+    area: document.getElementById("edit-area").value,
+    issue: document.getElementById("edit-issue").value.trim(),
+    risk: document.getElementById("edit-risk").value,
+    responsible: document.getElementById("edit-resp").value,
+    dueDate: document.getElementById("edit-due").value.trim()
+  };
+  if(!vals.issue){ toastMsg("กรุณากรอกรายละเอียดปัญหา", ic.warn); return; }
+  setBusy(true);
+  try{
+    const updated = await apiPost("updateIssue", vals);
+    const t = tasks.find(x=>String(x.ID)===String(id));
+    if (t) Object.assign(t, updated);
+    state.taskEditId = null;
+    toastMsg("บันทึกการแก้ไขเรียบร้อย");
+  }catch(err){
+    toastMsg("บันทึกไม่สำเร็จ: " + err.message, ic.warn);
+  }
+  setBusy(false);
+}
+
+async function deleteTask(id){
+  if(!confirm("ยืนยันการลบงานนี้หรือไม่? การลบไม่สามารถย้อนกลับได้")) return;
+  setBusy(true);
+  try{
+    await apiPost("deleteIssue", { id });
+    tasks = tasks.filter(x=>String(x.ID)!==String(id));
+    state.modalTask = null;
+    toastMsg("ลบงานเรียบร้อย");
+  }catch(err){
+    toastMsg("ลบไม่สำเร็จ: " + err.message, ic.warn);
+  }
+  setBusy(false);
 }
 
 async function advanceTask(id){
@@ -1000,7 +1186,7 @@ async function advanceTask(id){
   };
 
   if (nextStatus === "Closed"){
-    triggerPhotoInput((dataUrl, name)=> doUpdate(dataUrl, name));
+    choosePhotoSource((dataUrl, name)=> doUpdate(dataUrl, name));
   } else {
     doUpdate();
   }
@@ -1023,6 +1209,12 @@ function printTask(id){
     <div class="print-kv"><div class="k">วันที่พบปัญหา</div><div>${t.Opened}</div></div>
     <div class="print-kv"><div class="k">กำหนดแก้ไข</div><div>${t.DueDate}</div></div>
     <div class="print-kv"><div class="k">สถานะปัจจุบัน</div><div>${STATUS_LABEL[t.Status]}</div></div>
+    ${(t.PhotoBeforeURL || t.PhotoAfterURL) ? `
+      <div class="print-photos">
+        ${t.PhotoBeforeURL ? `<div class="print-photo"><img src="${t.PhotoBeforeURL}"><div class="cap">ภาพก่อนแก้ไข</div></div>` : ""}
+        ${t.PhotoAfterURL ? `<div class="print-photo"><img src="${t.PhotoAfterURL}"><div class="cap">ภาพหลังแก้ไข</div></div>` : ""}
+      </div>
+    ` : ""}
     <div style="margin-top:30px; display:flex; gap:40px;">
       <div>ผู้รายงาน: ......................................</div>
       <div>ผู้ตรวจสอบยืนยัน: ......................................</div>
@@ -1040,9 +1232,12 @@ function printTaskList(){
       <div class="d">พิมพ์เมื่อ ${new Date().toLocaleDateString('th-TH')}</div>
     </div>
     <table class="print-tbl">
-      <thead><tr><th>พื้นที่</th><th>ปัญหาที่พบ</th><th>ความเสี่ยง</th><th>ผู้รับผิดชอบ</th><th>กำหนดแก้ไข</th><th>สถานะ</th></tr></thead>
+      <thead><tr><th>พื้นที่</th><th>ปัญหาที่พบ</th><th>ความเสี่ยง</th><th>ผู้รับผิดชอบ</th><th>กำหนดแก้ไข</th><th>สถานะ</th><th>ภาพ</th></tr></thead>
       <tbody>
-        ${list.map(t=>`<tr><td>${t.Area}</td><td>${t.Issue}</td><td>${t.Risk}</td><td>${t.Responsible}</td><td>${t.DueDate}</td><td>${STATUS_LABEL[t.Status]}</td></tr>`).join("")}
+        ${list.map(t=>`<tr>
+          <td>${t.Area}</td><td>${t.Issue}</td><td>${t.Risk}</td><td>${t.Responsible}</td><td>${t.DueDate}</td><td>${STATUS_LABEL[t.Status]}</td>
+          <td>${t.PhotoBeforeURL ? `<img class="print-tbl-thumb" src="${t.PhotoBeforeURL}">` : ""}${t.PhotoAfterURL ? `<img class="print-tbl-thumb" src="${t.PhotoAfterURL}">` : ""}</td>
+        </tr>`).join("")}
       </tbody>
     </table>
   `;
@@ -1147,9 +1342,18 @@ function wizStep2(){
             </div>
             <div class="field" style="margin-bottom:10px">
               <label>ถ่ายภาพหน้างาน</label>
-              <div class="photo-box ${c.photoData?'taken':''}" onclick="takePhoto(${i})">
-                ${c.photoData? ic.check+' ถ่ายภาพแล้ว 1 รูป' : ic.camera+' แตะเพื่อถ่ายภาพ'}
-              </div>
+              ${c.photoData ? `
+                <div class="photo-preview">
+                  <img src="${c.photoData}">
+                  <span>${ic.check} แนบรูปแล้ว 1 รูป</span>
+                  <span class="rm" onclick="removeChecklistPhoto(${i})">ลบรูป</span>
+                </div>
+              ` : `
+                <div class="photo-actions">
+                  <div class="photo-btn" onclick="takePhoto(${i})">${ic.camera}ถ่ายภาพ</div>
+                  <div class="photo-btn" onclick="attachPhoto(${i})">${ic.upload}แนบรูป</div>
+                </div>
+              `}
             </div>
           </div>` : ""}
       </div>
@@ -1210,7 +1414,20 @@ function takePhoto(i){
     state.draft.checks[i].photoName = name;
     toastMsg("ถ่ายภาพเรียบร้อย");
     render();
-  });
+  }, true);
+}
+function attachPhoto(i){
+  triggerPhotoInput((dataUrl, name)=>{
+    state.draft.checks[i].photoData = dataUrl;
+    state.draft.checks[i].photoName = name;
+    toastMsg("แนบรูปเรียบร้อย");
+    render();
+  }, false);
+}
+function removeChecklistPhoto(i){
+  state.draft.checks[i].photoData = null;
+  state.draft.checks[i].photoName = null;
+  render();
 }
 function d_area(v){ state.draft.areaId = v; }
 function d_type(v){
@@ -1272,7 +1489,8 @@ function renderAdmin(){
     {k:"types", label:"ประเภทตรวจ"},
     {k:"checklist", label:"รายการตรวจสอบ"},
     {k:"people", label:"ผู้รับผิดชอบ"},
-    {k:"plans", label:"แผนงาน"}
+    {k:"plans", label:"แผนงาน"},
+    {k:"backup", label:"สำรองข้อมูล"}
   ];
   return `
     <div class="tabs">
@@ -1283,7 +1501,58 @@ function renderAdmin(){
     ${state.adminTab==="checklist" ? renderAdminChecklist() : ""}
     ${state.adminTab==="people" ? renderAdminSimple(RESPONSIBLES, "people", "เพิ่มผู้รับผิดชอบ") : ""}
     ${state.adminTab==="plans" ? renderAdminPlans() : ""}
+    ${state.adminTab==="backup" ? renderAdminBackup() : ""}
   `;
+}
+
+function renderAdminBackup(){
+  const now = new Date();
+  return `
+    <div class="card">
+      <div class="section-label" style="margin-top:0"><span class="dash"></span>สำรองข้อมูลทั้งหมด</div>
+      <div style="font-size:12.5px; color:var(--mute); line-height:1.6; margin-bottom:14px;">
+        ดาวน์โหลดข้อมูลทั้งหมดที่โหลดอยู่ในเว็บขณะนี้ (พื้นที่ ประเภทตรวจ รายการตรวจสอบ ผู้รับผิดชอบ งานแก้ไข แผนงาน และประวัติการตรวจ) เก็บไว้เป็นไฟล์สำรอง — เผื่อกรณีต้องการข้อมูลย้อนหลังนอกเหนือจาก Google Sheet ต้นทาง
+      </div>
+      <button class="btn-primary" onclick="backupAllData()">${ic.download}ดาวน์โหลดข้อมูลสำรอง (JSON)</button>
+      <div style="height:10px"></div>
+      <button class="btn-secondary" onclick="exportIssuesCsv()">${ic.download}ส่งออกงานแก้ไขเป็น Excel/CSV</button>
+      <div style="font-size:11px; color:var(--mute); margin-top:10px;">ข้อมูลต้นฉบับทั้งหมดยังคงอยู่ใน Google Sheet ของคุณเสมอ ไฟล์นี้เป็นเพียงสำเนาสำรอง ณ เวลา ${now.toLocaleString('th-TH')}</div>
+    </div>
+  `;
+}
+
+function downloadTextFile(filename, content, mime){
+  const blob = new Blob([content], {type: mime});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function backupAllData(){
+  const payload = {
+    exportedAt: new Date().toISOString(),
+    areas: AREAS, types: INSPECT_TYPES, checklist: CHECKLIST_ITEMS,
+    people: RESPONSIBLES, issues: tasks, plans: PLANS, inspections: INSPECTIONS
+  };
+  const dateStr = new Date().toISOString().slice(0,10);
+  downloadTextFile(`safety-backup-${dateStr}.json`, JSON.stringify(payload, null, 2), "application/json");
+  toastMsg("ดาวน์โหลดไฟล์สำรองเรียบร้อย");
+}
+
+function csvEscape(v){
+  const s = String(v==null ? "" : v);
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
+}
+
+function exportIssuesCsv(){
+  const headers = ["ID","Area","Issue","Risk","Status","Responsible","DueDate","Opened","PhotoBeforeURL","PhotoAfterURL","ClosedDate"];
+  const rows = [headers.join(",")];
+  tasks.forEach(t=> rows.push(headers.map(h=>csvEscape(t[h])).join(",")));
+  const dateStr = new Date().toISOString().slice(0,10);
+  downloadTextFile(`safety-issues-${dateStr}.csv`, "\uFEFF" + rows.join("\n"), "text/csv;charset=utf-8");
+  toastMsg("ดาวน์โหลดไฟล์ CSV เรียบร้อย");
 }
 
 function entityMeta(entity){
