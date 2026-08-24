@@ -411,10 +411,16 @@ body{
 .status-pill.status-รอดำเนินการ{background:#FFF4DA; color:var(--amber-2);}
 .status-pill.status-เสร็จสิ้น{background:var(--green-bg); color:var(--green);}
 .status-pill.status-ยกเลิก{background:var(--red-bg); color:var(--red);}
+.status-pill.status-PendingApproval{background:#FFE6D5; color:#B5540C;}
+.status-pill.status-Closed{background:var(--green-bg); color:var(--green);}
 </style></head>
 <body>
 <div class="shell" id="shell"></div>
 <div id="printArea"></div>
+<!-- ใช้สำหรับปุ่ม "บันทึกเป็น PDF" — แปลงรายงาน (HTML) เป็นภาพแล้วฝังลงไฟล์ PDF จริงให้ดาวน์โหลดได้เลย
+     โดยไม่ต้องผ่านหน้าต่างพิมพ์ของเบราว์เซอร์ (รองรับข้อความภาษาไทยแน่นอนเพราะ capture เป็นภาพ ไม่ใช่ font ของ PDF) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script>
 /* =========================================================
    แอปตรวจความปลอดภัย — Frontend
@@ -457,8 +463,8 @@ const ic = {
   download:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v12M7 11l5 5 5-5"/><path d="M4 19h16"/></svg>`
 };
 
-const STATUS_ORDER = ["New","Assigned","InProgress","Waiting","Closed"];
-const STATUS_LABEL = {New:"งานใหม่",Assigned:"มอบหมายแล้ว",InProgress:"กำลังดำเนินการ",Waiting:"รอตรวจสอบ",Closed:"ปิดงานแล้ว"};
+const STATUS_ORDER = ["New","Assigned","InProgress","Waiting","PendingApproval","Closed"];
+const STATUS_LABEL = {New:"งานใหม่",Assigned:"มอบหมายแล้ว",InProgress:"กำลังดำเนินการ",Waiting:"รอตรวจสอบ",PendingApproval:"รอผู้ดูแลอนุมัติปิดงาน",Closed:"ปิดงานแล้ว"};
 
 /* ---------------- data (loaded from Google Sheets) ---------------- */
 let AREAS = [];
@@ -953,7 +959,8 @@ function renderTasks(){
           <span class="cnt">${counts[f]}</span>
         </div>`).join("")}
     </div>
-    <button class="btn-secondary" style="margin-bottom:14px" onclick="printTaskList()">${ic.printer}พิมพ์รายงานรายการนี้</button>
+    <button class="btn-secondary" onclick="printTaskList()">${ic.printer}พิมพ์รายงานรายการนี้</button>
+    <button class="btn-secondary" style="margin-bottom:14px" onclick="downloadTaskListPdf()">${ic.download}บันทึกเป็น PDF</button>
     ${list.length===0 ? `<div class="empty">${ic.inbox}<div class="t">ไม่มีงานในสถานะนี้</div></div>` :
       list.map(t=>taskCard(t)).join("")}
   `;
@@ -1096,7 +1103,7 @@ function renderTaskModal(id){
   if(!t) return "";
   if (state.taskEditId === t.ID) return renderTaskEditModal(t);
   const idx = STATUS_ORDER.indexOf(t.Status);
-  const nextLabel = {New:"รับมอบหมายงาน",Assigned:"เริ่มดำเนินการแก้ไข",InProgress:"ส่งให้ตรวจสอบผล",Waiting:"ยืนยันปิดงาน (อัปโหลดภาพหลังแก้ไข)"}[t.Status];
+  const nextLabel = {New:"รับมอบหมายงาน",Assigned:"เริ่มดำเนินการแก้ไข",InProgress:"ส่งให้ตรวจสอบผล",Waiting:"ส่งภาพหลังแก้ไข (รอผู้ดูแลอนุมัติ)"}[t.Status];
   return `<div class="modal-back" onclick="if(event.target===this)closeModal()">
     <div class="modal">
       <div class="modal-handle"></div>
@@ -1140,13 +1147,25 @@ function renderTaskModal(id){
         </div>
       ` : ""}
 
-      ${t.Status!=="Closed" ? `
+      ${t.Status==="Closed" ? `
+        <div style="margin-top:18px; text-align:center; color:var(--green); font-weight:700; font-size:13px; display:flex; align-items:center; justify-content:center; gap:6px;">${ic.shield.replace(/currentColor/g,'var(--green)')} Safety Verified &amp; ปิดงานแล้ว</div>
+      ` : t.Status==="PendingApproval" ? `
+        ${adminPassword ? `
+          <div style="font-size:12px; color:var(--mute); margin-top:16px; margin-bottom:8px; font-weight:600;">ตรวจสอบภาพก่อน/หลังแก้ไขด้านบน แล้วอนุมัติหรือส่งกลับให้แก้ไขเพิ่มเติม</div>
+          <div class="frow" style="margin-top:0">
+            <button class="btn-sm" style="flex:1;color:var(--red);border-color:var(--red)" onclick="adminRejectClose('${t.ID}')" ${state.busy?'disabled':''}>${ic.warn} ส่งกลับแก้ไข</button>
+            <button class="btn-sm" style="flex:1;background:var(--green);color:#fff;border-color:var(--green)" onclick="adminApproveClose('${t.ID}')" ${state.busy?'disabled':''}>${ic.check} อนุมัติปิดงาน</button>
+          </div>
+        ` : `
+          <div style="margin-top:18px; text-align:center; color:#B5540C; font-weight:700; font-size:13px; background:#FFE6D5; border-radius:12px; padding:12px; display:flex; align-items:center; justify-content:center; gap:6px;">${ic.clock}รอผู้ดูแลระบบตรวจสอบและอนุมัติปิดงาน</div>
+        `}
+      ` : `
         <button class="btn-primary" style="margin-top:18px" onclick="advanceTask('${t.ID}')" ${state.busy?'disabled':''}>
           ${ic.check}${state.busy?'กำลังบันทึก...':nextLabel}
-        </button>` :
-        `<div style="margin-top:18px; text-align:center; color:var(--green); font-weight:700; font-size:13px; display:flex; align-items:center; justify-content:center; gap:6px;">${ic.shield.replace(/currentColor/g,'var(--green)')} Safety Verified &amp; ปิดงานแล้ว</div>`
+        </button>`
       }
       <button class="btn-secondary" onclick="printTask('${t.ID}')">${ic.printer}พิมพ์รายงานนี้</button>
+      <button class="btn-secondary" onclick="downloadTaskPdf('${t.ID}')">${ic.download}บันทึกเป็น PDF</button>
       <div class="frow">
         <button class="btn-sm" style="flex:1" onclick="openTaskEdit('${t.ID}')">${ic.pencil} แก้ไขงาน</button>
         ${adminPassword ? `<button class="btn-sm" style="flex:1;color:var(--red);border-color:var(--red)" onclick="deleteTask('${t.ID}')">${ic.trash} ลบงานนี้</button>` : ""}
@@ -1250,7 +1269,7 @@ async function advanceTask(id){
   if (!t) return;
   const idx = STATUS_ORDER.indexOf(t.Status);
   const nextStatus = STATUS_ORDER[idx+1];
-  if (!nextStatus) return;
+  if (!nextStatus || nextStatus === "Closed") return; // ปิดงานได้เฉพาะผู้ดูแลระบบอนุมัติเท่านั้น ดู adminApproveClose()
 
   const doUpdate = async (photoAfterData, photoAfterName)=>{
     setBusy(true);
@@ -1265,7 +1284,7 @@ async function advanceTask(id){
         Assigned:"มอบหมายงานเรียบร้อย — แจ้งเตือนผ่าน Email/Teams แล้ว",
         InProgress:"เริ่มดำเนินการแก้ไขแล้ว",
         Waiting:"ส่งผลให้ Safety Officer ตรวจสอบแล้ว",
-        Closed:"ปิดงานสำเร็จ — บันทึกภาพหลังแก้ไขเรียบร้อย"
+        PendingApproval:"ส่งภาพหลังแก้ไขแล้ว — รอผู้ดูแลระบบตรวจสอบและอนุมัติปิดงาน"
       };
       toastMsg(msgs[nextStatus] || "อัปเดตสถานะแล้ว");
     }catch(err){
@@ -1274,11 +1293,42 @@ async function advanceTask(id){
     setBusy(false);
   };
 
-  if (nextStatus === "Closed"){
+  if (nextStatus === "PendingApproval"){
     choosePhotoSource((dataUrl, name)=> doUpdate(dataUrl, name));
   } else {
     doUpdate();
   }
+}
+
+async function adminApproveClose(id){
+  if(!confirm("ยืนยันอนุมัติปิดงานนี้หรือไม่? หลังจากนี้จะถือว่างานเสร็จสมบูรณ์")) return;
+  const t = tasks.find(x=>String(x.ID)===String(id));
+  if (!t) return;
+  setBusy(true);
+  try{
+    const updated = await apiPost("updateIssueStatus", { id: t.ID, status: "Closed" }, adminPassword);
+    Object.assign(t, updated);
+    toastMsg("อนุมัติปิดงานเรียบร้อย");
+  }catch(err){
+    toastMsg("อนุมัติไม่สำเร็จ: " + err.message, ic.warn);
+  }
+  setBusy(false);
+}
+
+async function adminRejectClose(id){
+  if(!confirm("ส่งงานนี้กลับให้ผู้รับผิดชอบแก้ไขเพิ่มเติมหรือไม่?")) return;
+  const t = tasks.find(x=>String(x.ID)===String(id));
+  if (!t) return;
+  setBusy(true);
+  try{
+    // ส่งกลับไปสถานะ "รอตรวจสอบ" เพื่อให้ผู้รับผิดชอบถ่ายภาพหลังแก้ไขใหม่และส่งเข้ามาอีกครั้ง
+    const updated = await apiPost("updateIssueStatus", { id: t.ID, status: "Waiting" }, adminPassword);
+    Object.assign(t, updated);
+    toastMsg("ส่งงานกลับให้แก้ไขเพิ่มเติมแล้ว");
+  }catch(err){
+    toastMsg("ดำเนินการไม่สำเร็จ: " + err.message, ic.warn);
+  }
+  setBusy(false);
 }
 
 /* ---------------- PRINT ---------------- */
@@ -1312,11 +1362,24 @@ function waitForPrintImages(container, timeoutMs=4000){
 function printTask(id){
   const t = tasks.find(x=>String(x.ID)===String(id));
   if(!t) return;
+  buildTaskReportHtml(t);
+  waitForPrintImages(document.getElementById("printArea")).then(()=> window.print());
+}
+
+function downloadTaskPdf(id){
+  const t = tasks.find(x=>String(x.ID)===String(id));
+  if(!t) return;
+  buildTaskReportHtml(t);
+  const area = document.getElementById("printArea");
+  waitForPrintImages(area).then(()=> exportPrintAreaAsPdf(`safety-report-${t.Area}-${Date.now()}.pdf`));
+}
+
+function buildTaskReportHtml(t){
   const area = document.getElementById("printArea");
   area.innerHTML = `
     <div class="print-hd">
       <div><h1>รายงานการตรวจความปลอดภัย</h1><div class="d">ใบรายงานปัญหารายข้อ</div></div>
-      <div class="d">พิมพ์เมื่อ ${new Date().toLocaleDateString('th-TH')}</div>
+      <div class="d">พิมพ์เมื่อ ${thaiDateDisplay(todayThai())}</div>
     </div>
     <div class="print-kv"><div class="k">พื้นที่</div><div>${t.Area}</div></div>
     <div class="print-kv"><div class="k">รายละเอียดปัญหา</div><div>${t.Issue}</div></div>
@@ -1336,16 +1399,26 @@ function printTask(id){
       <div>ผู้ตรวจสอบยืนยัน: ......................................</div>
     </div>
   `;
-  waitForPrintImages(area).then(()=> window.print());
 }
 
 function printTaskList(){
+  buildTaskListReportHtml();
+  waitForPrintImages(document.getElementById("printArea")).then(()=> window.print());
+}
+
+function downloadTaskListPdf(){
+  buildTaskListReportHtml();
+  const area = document.getElementById("printArea");
+  waitForPrintImages(area).then(()=> exportPrintAreaAsPdf(`safety-tasks-report-${Date.now()}.pdf`));
+}
+
+function buildTaskListReportHtml(){
   const list = state.filter==="all" ? tasks : tasks.filter(t=>t.Status===state.filter);
   const area = document.getElementById("printArea");
   area.innerHTML = `
     <div class="print-hd">
       <div><h1>รายงานสรุปงานตรวจความปลอดภัย</h1><div class="d">${state.filter==="all"?"ทุกสถานะ":STATUS_LABEL[state.filter]} (${list.length} รายการ)</div></div>
-      <div class="d">พิมพ์เมื่อ ${new Date().toLocaleDateString('th-TH')}</div>
+      <div class="d">พิมพ์เมื่อ ${thaiDateDisplay(todayThai())}</div>
     </div>
     <table class="print-tbl">
       <thead><tr><th>พื้นที่</th><th>ปัญหาที่พบ</th><th>ความเสี่ยง</th><th>ผู้รับผิดชอบ</th><th>กำหนดแก้ไข</th><th>สถานะ</th><th>ภาพ</th></tr></thead>
@@ -1357,7 +1430,45 @@ function printTaskList(){
       </tbody>
     </table>
   `;
-  waitForPrintImages(area).then(()=> window.print());
+}
+
+// แปลงเนื้อหาใน #printArea เป็นรูปภาพด้วย html2canvas แล้วฝังลงไฟล์ PDF จริงด้วย jsPDF (แบ่งหน้าอัตโนมัติถ้ายาวเกิน 1 หน้า A4)
+async function exportPrintAreaAsPdf(filename){
+  const area = document.getElementById("printArea");
+  if (!area || !window.html2canvas || !window.jspdf){
+    toastMsg("ไม่สามารถโหลดตัวสร้างไฟล์ PDF ได้ — ตรวจสอบการเชื่อมต่ออินเทอร์เน็ต", ic.warn);
+    return;
+  }
+  toastMsg("กำลังสร้างไฟล์ PDF...");
+  try{
+    area.style.display = "block"; // html2canvas ต้องการให้ element มองเห็นได้ชั่วคราวขณะ capture
+    const canvas = await window.html2canvas(area, { scale: 2, useCORS: true, backgroundColor: "#ffffff" });
+    area.style.display = "";
+
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF("p", "mm", "a4");
+    const pageW = pdf.internal.pageSize.getWidth();
+    const pageH = pdf.internal.pageSize.getHeight();
+    const imgW = pageW;
+    const imgH = (canvas.height * imgW) / canvas.width;
+    const imgData = canvas.toDataURL("image/jpeg", 0.92);
+
+    let heightLeft = imgH;
+    let position = 0;
+    pdf.addImage(imgData, "JPEG", 0, position, imgW, imgH);
+    heightLeft -= pageH;
+    while (heightLeft > 0){
+      position = heightLeft - imgH;
+      pdf.addPage();
+      pdf.addImage(imgData, "JPEG", 0, position, imgW, imgH);
+      heightLeft -= pageH;
+    }
+    pdf.save(filename);
+    toastMsg("ดาวน์โหลดไฟล์ PDF เรียบร้อย");
+  }catch(err){
+    area.style.display = "";
+    toastMsg("สร้างไฟล์ PDF ไม่สำเร็จ: " + err.message, ic.warn);
+  }
 }
 
 /* ---------------- NEW INSPECTION WIZARD ---------------- */
