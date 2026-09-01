@@ -1217,7 +1217,7 @@ function renderTaskEditModal(t){
       </div>
       <div class="field">
         <label>กำหนดแก้ไข</label>
-        <input type="text" id="edit-due" value="${t.DueDate}">
+        <input type="date" id="edit-due" value="${thaiDateToIso(t.DueDate)}">
       </div>
       <div class="frow">
         <button class="btn-sm" style="flex:1" onclick="closeTaskEdit()">ยกเลิก</button>
@@ -1228,13 +1228,14 @@ function renderTaskEditModal(t){
 }
 
 async function saveTaskEdit(id){
+  const existing = tasks.find(x=>String(x.ID)===String(id));
   const vals = {
     id,
     area: document.getElementById("edit-area").value,
     issue: document.getElementById("edit-issue").value.trim(),
     risk: document.getElementById("edit-risk").value,
     responsible: document.getElementById("edit-resp").value,
-    dueDate: document.getElementById("edit-due").value.trim()
+    dueDate: isoToThaiDate(document.getElementById("edit-due").value) || (existing ? existing.DueDate : "")
   };
   if(!vals.issue){ toastMsg("กรุณากรอกรายละเอียดปัญหา", ic.warn); return; }
   setBusy(true);
