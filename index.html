@@ -1242,15 +1242,18 @@ function renderTaskEditModal(t){
 async function saveTaskEdit(id){
   const existing = tasks.find(x=>String(x.ID)===String(id));
   const d = state.taskEditDraft || {};
+  // สำคัญ: คีย์ที่ส่งไปต้องตรงกับชื่อหัวคอลัมน์ในชีท Issues เป๊ะๆ (Area, Issue, Risk, Responsible, DueDate)
+  // เพราะฝั่ง Apps Script (updateRow) จับคู่คีย์ตามชื่อหัวคอลัมน์ตรงๆ แบบ case-sensitive
+  // ก่อนหน้านี้ส่งเป็นตัวพิมพ์เล็ก (area, issue, ...) ทำให้ไม่ตรงกับหัวคอลัมน์เลยสักตัว จึงไม่มีฟิลด์ไหนถูกบันทึกจริง
   const vals = {
     id,
-    area: d.area,
-    issue: (d.issue||"").trim(),
-    risk: d.risk,
-    responsible: d.responsible,
-    dueDate: d.dueDate || (existing ? existing.DueDate : "")
+    Area: d.area,
+    Issue: (d.issue||"").trim(),
+    Risk: d.risk,
+    Responsible: d.responsible,
+    DueDate: d.dueDate || (existing ? existing.DueDate : "")
   };
-  if(!vals.issue){ toastMsg("กรุณากรอกรายละเอียดปัญหา", ic.warn); return; }
+  if(!vals.Issue){ toastMsg("กรุณากรอกรายละเอียดปัญหา", ic.warn); return; }
   setBusy(true);
   try{
     const updated = await apiPost("updateIssue", vals);
