@@ -486,6 +486,8 @@ let state = {
   modalTask: null,
   modalInspection: null,
   taskEditId: null,
+  taskEditDraft: null,
+  planFormDraft: null,
   photoChooser: null,
   showPhotoWarning: false,
   draft: null,
@@ -1069,8 +1071,8 @@ function taskCard(t){
   </div>`;
 }
 
-function openTask(id){ state.modalTask = id; state.taskEditId = null; render(); }
-function closeModal(){ state.modalTask = null; state.taskEditId = null; render(); }
+function openTask(id){ state.modalTask = id; state.taskEditId = null; state.taskEditDraft = null; render(); }
+function closeModal(){ state.modalTask = null; state.taskEditId = null; state.taskEditDraft = null; render(); }
 
 function choosePhotoSource(onDone){
   state.photoChooser = onDone;
@@ -1191,33 +1193,43 @@ async function removeTaskPhoto(id, which){
   setBusy(false);
 }
 
-function openTaskEdit(id){ state.taskEditId = id; render(); }
-function closeTaskEdit(){ state.taskEditId = null; render(); }
+function openTaskEdit(id){
+  const t = tasks.find(x=>String(x.ID)===String(id));
+  if (!t) return;
+  // เก็บค่าที่แก้ไขไว้ใน state ตั้งแต่ต้น (ไม่ใช่แค่ค่าดั้งเดิมจาก t) เพื่อไม่ให้การ re-render ระหว่างทาง
+  // (เช่นตอนกดบันทึกแล้วเข้าสถานะ busy) ไปดึงค่าฟอร์มกลับไปเป็นค่าดั้งเดิมทับค่าที่ผู้ใช้เพิ่งเลือกไว้
+  state.taskEditId = id;
+  state.taskEditDraft = { area: t.Area, issue: t.Issue, risk: t.Risk, responsible: t.Responsible, dueDate: t.DueDate };
+  render();
+}
+function closeTaskEdit(){ state.taskEditId = null; state.taskEditDraft = null; render(); }
+function taskEditSet(field, value){ if (state.taskEditDraft) state.taskEditDraft[field] = value; }
 
 function renderTaskEditModal(t){
+  const d = state.taskEditDraft || { area: t.Area, issue: t.Issue, risk: t.Risk, responsible: t.Responsible, dueDate: t.DueDate };
   return `<div class="modal-back" onclick="if(event.target===this)closeTaskEdit()">
     <div class="modal">
       <div class="modal-handle"></div>
       <div style="font-size:15px;font-weight:700;margin-bottom:14px;">แก้ไขงาน</div>
       <div class="field">
         <label>พื้นที่</label>
-        <select id="edit-area">${AREAS.map(a=>`<option ${t.Area===a.Name?'selected':''}>${a.Name}</option>`).join("")}</select>
+        <select onchange="taskEditSet('area', this.value)">${AREAS.map(a=>`<option ${d.area===a.Name?'selected':''}>${a.Name}</option>`).join("")}</select>
       </div>
       <div class="field">
         <label>รายละเอียดปัญหา</label>
-        <textarea id="edit-issue">${t.Issue}</textarea>
+        <textarea oninput="taskEditSet('issue', this.value)">${d.issue}</textarea>
       </div>
       <div class="field">
         <label>ระดับความเสี่ยง</label>
-        <select id="edit-risk">${["ต่ำ","กลาง","สูง"].map(r=>`<option ${t.Risk===r?'selected':''}>${r}</option>`).join("")}</select>
+        <select onchange="taskEditSet('risk', this.value)">${["ต่ำ","กลาง","สูง"].map(r=>`<option ${d.risk===r?'selected':''}>${r}</option>`).join("")}</select>
       </div>
       <div class="field">
         <label>ผู้รับผิดชอบแก้ไข</label>
-        <select id="edit-resp">${RESPONSIBLES.map(r=>`<option ${t.Responsible===r.Name?'selected':''}>${r.Name}</option>`).join("")}</select>
+        <select onchange="taskEditSet('responsible', this.value)">${RESPONSIBLES.map(r=>`<option ${d.responsible===r.Name?'selected':''}>${r.Name}</option>`).join("")}</select>
       </div>
       <div class="field">
         <label>กำหนดแก้ไข</label>
-        <input type="date" id="edit-due" value="${thaiDateToIso(t.DueDate)}">
+        <input type="date" value="${thaiDateToIso(d.dueDate)}" onchange="taskEditSet('dueDate', isoToThaiDate(this.value))">
       </div>
       <div class="frow">
         <button class="btn-sm" style="flex:1" onclick="closeTaskEdit()">ยกเลิก</button>
@@ -1229,13 +1241,14 @@ function renderTaskEditModal(t){
 
 async function saveTaskEdit(id){
   const existing = tasks.find(x=>String(x.ID)===String(id));
+  const d = state.taskEditDraft || {};
   const vals = {
     id,
-    area: document.getElementById("edit-area").value,
-    issue: document.getElementById("edit-issue").value.trim(),
-    risk: document.getElementById("edit-risk").value,
-    responsible: document.getElementById("edit-resp").value,
-    dueDate: isoToThaiDate(document.getElementById("edit-due").value) || (existing ? existing.DueDate : "")
+    area: d.area,
+    issue: (d.issue||"").trim(),
+    risk: d.risk,
+    responsible: d.responsible,
+    dueDate: d.dueDate || (existing ? existing.DueDate : "")
   };
   if(!vals.issue){ toastMsg("กรุณากรอกรายละเอียดปัญหา", ic.warn); return; }
   setBusy(true);
@@ -1244,6 +1257,7 @@ async function saveTaskEdit(id){
     const t = tasks.find(x=>String(x.ID)===String(id));
     if (t) Object.assign(t, updated);
     state.taskEditId = null;
+    state.taskEditDraft = null;
     toastMsg("บันทึกการแก้ไขเรียบร้อย");
   }catch(err){
     toastMsg("บันทึกไม่สำเร็จ: " + err.message, ic.warn);
@@ -1760,7 +1774,7 @@ async function submitInspection(){
 }
 
 /* ---------------- ADMIN PANEL ---------------- */
-function adminTab(t){ state.adminTab=t; state.adminEditId=null; state.adminAdding=false; render(); }
+function adminTab(t){ state.adminTab=t; state.adminEditId=null; state.adminAdding=false; state.planFormDraft=null; render(); }
 
 function renderAdmin(){
   const tabs = [
@@ -1884,9 +1898,9 @@ function renderAdminSimple(items, entity, addLabel){
 }
 
 function adminStartAdd(){ state.adminAdding=true; state.adminEditId=null; render(); document.getElementById("admin-new-input")?.focus(); }
-function adminCancelAdd(){ state.adminAdding=false; render(); }
+function adminCancelAdd(){ state.adminAdding=false; state.planFormDraft=null; render(); }
 function adminStartEdit(id){ state.adminEditId=id; state.adminAdding=false; render(); }
-function adminCancelEdit(){ state.adminEditId=null; render(); }
+function adminCancelEdit(){ state.adminEditId=null; state.planFormDraft=null; render(); }
 
 async function adminConfirmAdd(entity){
   const input = document.getElementById("admin-new-input");
@@ -2039,21 +2053,41 @@ async function adminDeleteChecklist(id){
 /* --- plans (แผนงานตรวจสอบล่วงหน้า) --- */
 const PLAN_STATUSES = ["รอดำเนินการ","เสร็จสิ้น","ยกเลิก"];
 
-function planFormFields(prefix, p){
-  p = p || {};
+// ฟอร์มแผนงานเก็บค่าที่แก้ไขไว้ใน state.planFormDraft เสมอ (ไม่อ่านค่าจาก DOM ตอนกดบันทึก)
+// ป้องกันปัญหาค่าที่เพิ่งเลือก (โดยเฉพาะวันที่) ถูกรีเซ็ตกลับเป็นค่าเดิมเวลามีการ re-render ระหว่างทาง เช่นตอนเข้าสถานะ busy
+function planDraftSet(field, value){ if (state.planFormDraft) state.planFormDraft[field] = value; }
+
+function adminStartAddPlan(){
+  state.adminAdding = true; state.adminEditId = null;
+  state.planFormDraft = {
+    Area: AREAS[0] ? AREAS[0].Name : "", Type: INSPECT_TYPES[0] ? INSPECT_TYPES[0].Name : "",
+    PlannedDate: "", Assignee: RESPONSIBLES[0] ? RESPONSIBLES[0].Name : "", Status: "รอดำเนินการ", Notes: ""
+  };
+  render();
+}
+function adminStartEditPlan(id){
+  const p = PLANS.find(x=>String(x.ID)===String(id));
+  if (!p) return;
+  state.adminEditId = id; state.adminAdding = false;
+  state.planFormDraft = { Area: p.Area, Type: p.Type, PlannedDate: p.PlannedDate, Assignee: p.Assignee, Status: p.Status, Notes: p.Notes };
+  render();
+}
+
+function planFormFields(){
+  const d = state.planFormDraft || {};
   return `
     <label style="font-size:12px;font-weight:600;color:var(--mute);display:block;margin-bottom:6px;">พื้นที่</label>
-    <select id="${prefix}-area">${AREAS.map(a=>`<option ${p.Area===a.Name?'selected':''}>${a.Name}</option>`).join("")}</select>
+    <select onchange="planDraftSet('Area', this.value)">${AREAS.map(a=>`<option ${d.Area===a.Name?'selected':''}>${a.Name}</option>`).join("")}</select>
     <label style="font-size:12px;font-weight:600;color:var(--mute);display:block;margin:10px 0 6px;">ประเภทการตรวจ</label>
-    <select id="${prefix}-type">${INSPECT_TYPES.map(t=>`<option ${p.Type===t.Name?'selected':''}>${t.Name}</option>`).join("")}</select>
+    <select onchange="planDraftSet('Type', this.value)">${INSPECT_TYPES.map(t=>`<option ${d.Type===t.Name?'selected':''}>${t.Name}</option>`).join("")}</select>
     <label style="font-size:12px;font-weight:600;color:var(--mute);display:block;margin:10px 0 6px;">วันที่วางแผนตรวจ</label>
-    <input type="date" id="${prefix}-date" value="${thaiDateToIso(p.PlannedDateRaw||'')}">
+    <input type="date" value="${thaiDateToIso(d.PlannedDate||'')}" onchange="planDraftSet('PlannedDate', isoToThaiDate(this.value))">
     <label style="font-size:12px;font-weight:600;color:var(--mute);display:block;margin:10px 0 6px;">ผู้รับผิดชอบตรวจ</label>
-    <select id="${prefix}-assignee">${RESPONSIBLES.map(r=>`<option ${p.Assignee===r.Name?'selected':''}>${r.Name}</option>`).join("")}</select>
+    <select onchange="planDraftSet('Assignee', this.value)">${RESPONSIBLES.map(r=>`<option ${d.Assignee===r.Name?'selected':''}>${r.Name}</option>`).join("")}</select>
     <label style="font-size:12px;font-weight:600;color:var(--mute);display:block;margin:10px 0 6px;">สถานะ</label>
-    <select id="${prefix}-status">${PLAN_STATUSES.map(s=>`<option ${(p.Status||"รอดำเนินการ")===s?'selected':''}>${s}</option>`).join("")}</select>
+    <select onchange="planDraftSet('Status', this.value)">${PLAN_STATUSES.map(s=>`<option ${(d.Status||"รอดำเนินการ")===s?'selected':''}>${s}</option>`).join("")}</select>
     <label style="font-size:12px;font-weight:600;color:var(--mute);display:block;margin:10px 0 6px;">หมายเหตุ (ถ้ามี)</label>
-    <textarea id="${prefix}-notes" placeholder="เช่น เน้นตรวจจุดที่เพิ่งซ่อมเสร็จ">${p.Notes||''}</textarea>
+    <textarea oninput="planDraftSet('Notes', this.value)" placeholder="เช่น เน้นตรวจจุดที่เพิ่งซ่อมเสร็จ">${d.Notes||''}</textarea>
   `;
 }
 
@@ -2063,21 +2097,21 @@ function renderAdminPlans(){
   let html = "";
   if(adding){
     html += `<div class="admin-form">
-      ${planFormFields("pl-new")}
+      ${planFormFields()}
       <div class="frow">
         <button class="btn-sm" style="flex:1" onclick="adminCancelAdd()">ยกเลิก</button>
         <button class="btn-sm" style="flex:1;background:var(--navy);color:#fff;border-color:var(--navy)" onclick="adminConfirmAddPlan()" ${state.busy?'disabled':''}>${ic.check} บันทึก</button>
       </div>
     </div>`;
   } else {
-    html += `<button class="add-row-btn" onclick="adminStartAdd()">${ic.plus} เพิ่มแผนงานตรวจสอบ</button>`;
+    html += `<button class="add-row-btn" onclick="adminStartAddPlan()">${ic.plus} เพิ่มแผนงานตรวจสอบ</button>`;
   }
 
   const sorted = [...PLANS].sort((a,b)=> sortableDateKey(a.PlannedDate).localeCompare(sortableDateKey(b.PlannedDate)));
   sorted.forEach(p=>{
     if(String(editId)===String(p.ID)){
       html += `<div class="admin-form">
-        ${planFormFields("pl-edit-"+p.ID, {Area:p.Area, Type:p.Type, PlannedDateRaw:p.PlannedDate, Assignee:p.Assignee, Status:p.Status, Notes:p.Notes})}
+        ${planFormFields()}
         <div class="frow">
           <button class="btn-sm" style="flex:1" onclick="adminCancelEdit()">ยกเลิก</button>
           <button class="btn-sm" style="flex:1;background:var(--navy);color:#fff;border-color:var(--navy)" onclick="adminSavePlanEdit('${p.ID}')" ${state.busy?'disabled':''}>${ic.check} บันทึก</button>
@@ -2090,7 +2124,7 @@ function renderAdminPlans(){
           <div class="tg">${p.PlannedDate ? thaiDateDisplay(p.PlannedDate) : 'ไม่ระบุวันที่'} • ${p.Assignee||'ยังไม่ระบุผู้ตรวจ'} • ${p.Status||'รอดำเนินการ'}</div>
         </div>
         <div class="acts">
-          <div class="icon-sm" onclick="adminStartEdit('${p.ID}')">${ic.pencil}</div>
+          <div class="icon-sm" onclick="adminStartEditPlan('${p.ID}')">${ic.pencil}</div>
           <div class="icon-sm danger" onclick="adminDeletePlan('${p.ID}')">${ic.trash}</div>
         </div>
       </div>`;
@@ -2099,25 +2133,15 @@ function renderAdminPlans(){
   return html;
 }
 
-function readPlanForm(prefix){
-  return {
-    Area: document.getElementById(prefix+"-area")?.value || "",
-    Type: document.getElementById(prefix+"-type")?.value || "",
-    PlannedDate: isoToThaiDate(document.getElementById(prefix+"-date")?.value || ""),
-    Assignee: document.getElementById(prefix+"-assignee")?.value || "",
-    Status: document.getElementById(prefix+"-status")?.value || "รอดำเนินการ",
-    Notes: document.getElementById(prefix+"-notes")?.value.trim() || ""
-  };
-}
-
 async function adminConfirmAddPlan(){
-  const vals = readPlanForm("pl-new");
+  const vals = state.planFormDraft || {};
   if(!vals.Area || !vals.Type){ toastMsg("กรุณาเลือกพื้นที่และประเภทการตรวจ", ic.warn); return; }
   setBusy(true);
   try{
     const created = await apiPost("addPlan", vals, adminPassword);
     PLANS.push(created);
     state.adminAdding = false;
+    state.planFormDraft = null;
     toastMsg("เพิ่มแผนงานเรียบร้อย");
   }catch(err){
     toastMsg("บันทึกไม่สำเร็จ: " + err.message, ic.warn);
@@ -2126,7 +2150,7 @@ async function adminConfirmAddPlan(){
 }
 
 async function adminSavePlanEdit(id){
-  const vals = readPlanForm("pl-edit-"+id);
+  const vals = state.planFormDraft || {};
   if(!vals.Area || !vals.Type){ toastMsg("กรุณาเลือกพื้นที่และประเภทการตรวจ", ic.warn); return; }
   setBusy(true);
   try{
@@ -2134,6 +2158,7 @@ async function adminSavePlanEdit(id){
     const item = PLANS.find(x=>String(x.ID)===String(id));
     if (item) Object.assign(item, updated);
     state.adminEditId = null;
+    state.planFormDraft = null;
     toastMsg("บันทึกการแก้ไขเรียบร้อย");
   }catch(err){
     toastMsg("บันทึกไม่สำเร็จ: " + err.message, ic.warn);
